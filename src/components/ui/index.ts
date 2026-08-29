@@ -7,3 +7,5 @@ export { Badge } from "./Badge";
 export type { BadgeProps, BadgeVariant } from "./Badge";
 export { Toggle } from "./Toggle";
 export { Spinner } from "./Spinner";
+export { SegmentedControl } from "./SegmentedControl";
+export type { SegmentedOption, SegmentedControlProps } from "./SegmentedControl";

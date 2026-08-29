@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../store";
-import { PROXY_MODES, PROXY_MODE_TYPES } from "../types";
-import type { ProxyMode, ProxyModeType } from "../types";
-import { Card, CardHeader, CardTitle, CardContent, Button, Select, Toggle } from "../components/ui";
+import { Card, CardHeader, CardTitle, CardContent, Button, Toggle } from "../components/ui";
 
 export function SettingsView() {
   const config = useAppStore((s) => s.config);
@@ -34,16 +32,6 @@ export function SettingsView() {
   function toggle(key: "autoStart" | "minimizeToTray" | "connectionHistoryEnabled") {
     if (!config) return;
     saveConfig({ ...config, [key]: !config[key] });
-  }
-
-  function setProxyMode(mode: ProxyMode) {
-    if (!config) return;
-    saveConfig({ ...config, proxyMode: mode });
-  }
-
-  function setProxyModeType(modeType: ProxyModeType) {
-    if (!config) return;
-    saveConfig({ ...config, proxyModeType: modeType });
   }
 
   function handleUninstall() {
@@ -110,41 +98,10 @@ export function SettingsView() {
             </p>
           </div>
 
-          <label className="mt-2 flex flex-col gap-1 text-sm font-medium text-fg-dim">
-            Proxy mode
-            <Select
-              value={config.proxyMode}
-              onChange={(e) => setProxyMode(e.target.value as ProxyMode)}
-              className="w-48"
-            >
-              {PROXY_MODES.map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode}
-                </option>
-              ))}
-            </Select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-            Takeover mode
-            <Select
-              value={config.proxyModeType}
-              onChange={(e) => setProxyModeType(e.target.value as ProxyModeType)}
-              className="w-48"
-            >
-              {PROXY_MODE_TYPES.map((modeType) => (
-                <option key={modeType} value={modeType}>
-                  {modeType}
-                </option>
-              ))}
-            </Select>
-          </label>
-          {config.proxyModeType === "tun" && !helperStatus?.ready && (
-            <p className="text-sm text-warn">
-              TUN mode needs the privileged helper installed (see below) — starting the proxy
-              without it will fail.
-            </p>
-          )}
+          <p className="mt-1 text-xs text-fg-faint">
+            Takeover mode and routing strategy moved to the Dashboard — see the "Takeover mode"
+            and "Routing strategy" cards there.
+          </p>
         </CardContent>
       </Card>
 
