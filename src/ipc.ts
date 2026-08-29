@@ -43,4 +43,8 @@ export const ipc = {
   helperGetStatus: () => invoke<HelperStatus>("helper_get_status"),
   helperInstall: () => invoke<HelperStatus>("helper_install"),
   helperUninstall: () => invoke<HelperStatus>("helper_uninstall"),
+
+  backupExport: (path: string) => invoke<void>("backup_export", { path }),
+  backupImport: (path: string) => invoke<UserConfig>("backup_import", { path }),
+  diagnosticExport: (path: string) => invoke<void>("diagnostic_export", { path }),
 };

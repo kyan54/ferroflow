@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import { ipc } from "./ipc";
 import { appErrorMessage } from "./types";
 import type {
@@ -69,6 +70,10 @@ interface AppStore {
   refreshConnections: () => Promise<void>;
   closeConnection: (id: string) => Promise<void>;
   closeAllConnections: () => Promise<void>;
+
+  exportBackup: () => Promise<void>;
+  importBackup: () => Promise<void>;
+  exportDiagnostic: () => Promise<void>;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -358,6 +363,50 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await get().refreshConnections();
     } catch (err) {
       get().pushToast("error", `Failed to close all connections: ${appErrorMessage(err)}`);
+    }
+  },
+
+  exportBackup: async () => {
+    const path = await save({
+      defaultPath: "ferroflow-backup.json",
+      filters: [{ name: "Ferroflow backup", extensions: ["json"] }],
+    });
+    if (!path) return;
+    try {
+      await ipc.backupExport(path);
+      get().pushToast("success", "Backup exported");
+    } catch (err) {
+      get().pushToast("error", `Failed to export backup: ${appErrorMessage(err)}`);
+    }
+  },
+
+  importBackup: async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Ferroflow backup", extensions: ["json"] }],
+    });
+    if (!selected) return;
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    try {
+      const config = await ipc.backupImport(path);
+      set({ config });
+      get().pushToast("success", "Backup imported");
+    } catch (err) {
+      get().pushToast("error", `Failed to import backup: ${appErrorMessage(err)}`);
+    }
+  },
+
+  exportDiagnostic: async () => {
+    const path = await save({
+      defaultPath: "ferroflow-diagnostic.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (!path) return;
+    try {
+      await ipc.diagnosticExport(path);
+      get().pushToast("success", "Diagnostic report exported");
+    } catch (err) {
+      get().pushToast("error", `Failed to export diagnostic report: ${appErrorMessage(err)}`);
     }
   },
 }));

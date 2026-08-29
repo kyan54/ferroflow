@@ -32,6 +32,9 @@ pub fn run() {
             commands::helper::helper_get_status,
             commands::helper::helper_install,
             commands::helper::helper_uninstall,
+            commands::backup::backup_export,
+            commands::backup::backup_import,
+            commands::backup::diagnostic_export,
         ])
         .setup(|app| {
             state::load_persisted_config(app.handle());

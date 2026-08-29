@@ -13,6 +13,9 @@ export function SettingsView() {
   const refreshHelperStatus = useAppStore((s) => s.refreshHelperStatus);
   const installHelper = useAppStore((s) => s.installHelper);
   const uninstallHelper = useAppStore((s) => s.uninstallHelper);
+  const exportBackup = useAppStore((s) => s.exportBackup);
+  const importBackup = useAppStore((s) => s.importBackup);
+  const exportDiagnostic = useAppStore((s) => s.exportDiagnostic);
 
   useEffect(() => {
     refreshPlatformInfo();
@@ -160,6 +163,35 @@ export function SettingsView() {
               {helperBusy ? "Removing…" : "Remove helper"}
             </button>
           )}
+        </div>
+      </section>
+
+      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
+        <h2 className="text-lg font-semibold">Backup & diagnostics</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Back up your servers, rules, and settings to a file you can move to another machine, or
+          export a redacted diagnostic report safe to paste into a bug report.
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => exportBackup()}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            Export backup
+          </button>
+          <button
+            onClick={() => importBackup()}
+            className="rounded-md px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950"
+          >
+            Import backup
+          </button>
+          <button
+            onClick={() => exportDiagnostic()}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            Export diagnostic report
+          </button>
         </div>
       </section>
     </div>

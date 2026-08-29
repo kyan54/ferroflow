@@ -41,6 +41,9 @@ try {
 | `helper_install` | — | `HelperStatus` | one-time elevated install (UAC/osascript/pkexec); see "Helper install flow" below |
 | `helper_uninstall` | — | `HelperStatus` | reverses install |
 | `subscription_import` | `url: string` | `UserConfig` | fetches + parses a subscription URL, appends the parsed servers, persists, returns full config; see "Subscription import" below |
+| `backup_export` | `path: string` | `()` | writes the current config as a versioned JSON backup to `path` (chosen by the frontend's native save dialog); see "Backup & diagnostics" below |
+| `backup_import` | `path: string` | `UserConfig` | reads a versioned JSON backup from `path` (chosen by the frontend's native open dialog), replaces + persists the config, returns the new config |
+| `diagnostic_export` | `path: string` | `()` | writes a redacted Markdown diagnostic report to `path`; see "Backup & diagnostics" below |
 
 `net`'s methods currently return `Err(AppError{code:"not_implemented",..})`
 — that's the seam a future `net` subagent fills in (system-proxy set/clear
@@ -120,6 +123,57 @@ appends duplicate servers rather than merging against what's already in
 provider's URL, an update timestamp, ...) to dedupe against yet. Fine for a
 one-shot "paste a URL, get servers" MVP flow; revisit once there's a UI for
 managing/refreshing a named subscription rather than importing once.
+
+## Backup & diagnostics
+
+`commands::backup` (`src-tauri/src/commands/backup.rs`) adds config
+backup/restore and a redacted diagnostic export, all writing to/reading from
+a `path` the **frontend** picks via `@tauri-apps/plugin-dialog`'s
+`save()`/`open()` -- these commands never show a dialog themselves, they just
+do the file I/O they're told to.
+
+**Backup envelope.** `backup_export` does not write a bare `UserConfig` --
+it wraps it in a small versioned envelope so a future incompatible format
+change can be detected on import instead of silently misinterpreted:
+
+```json
+{
+  "ferroflowBackupVersion": 1,
+  "config": { /* UserConfig, same camelCase shape as config_get/config_save */ }
+}
+```
+
+`backup_import` checks `ferroflowBackupVersion` first: anything other than
+exactly `1` fails with `backup_incompatible` (no guess-migration -- that's a
+future problem once there's a second version to migrate from). A malformed
+file (bad JSON, missing `ferroflowBackupVersion`/`config` fields, or a
+`config` that doesn't match `UserConfig`'s shape) fails with
+`backup_invalid`, never a panic. On success, the imported config replaces
+`AppState.config`, is persisted to `config.json` the same way `config_save`
+does, and is returned to the frontend so the UI updates immediately.
+
+**Diagnostic export redaction.** `diagnostic_export` writes a Markdown
+report meant to be pasted directly into a GitHub issue. Exactly what's
+redacted:
+
+- **Servers**: `name`, `protocol`, `address`, `port`, `tls.enabled`, and
+  `tls.serverName` (SNI) are included -- these are what's actually useful
+  for diagnosing a connection problem. `uuid`, `password`,
+  `tls.realityPublicKey`, and `tls.realityShortId` are **never written to
+  the file at all** (not masked in place -- simply omitted from the table).
+- **Rules**: included in full (name, enabled, match type, values, outbound)
+  -- a routing rule's domains/IPs/process names are the entire point of the
+  rule, not a secret.
+- **Settings**: the non-secret `UserConfig` fields (`proxyMode`,
+  `proxyModeType`, `autoStart`, `silentStart`, `autoConnect`,
+  `minimizeToTray`, `language`, `selectedServerId`) are included in full.
+- Also included: app version (`env!("CARGO_PKG_VERSION")`), `PlatformInfo`
+  (via `commands::system::platform_info`), current `ProxyStatus` (via
+  `core_manager.status()`), current `SystemProxyStatus` (via
+  `system_proxy.status()`), and `HelperStatus` (via
+  `commands::helper::helper_get_status`, reused rather than duplicated --
+  its section reads "unavailable" instead of failing the whole export if
+  that check errors).
 
 ## Routing rules
 
@@ -221,8 +275,9 @@ WARP/WireGuard/Tailscale, rule-resources (GeoIP/GeoSite `.srs` rule-set
 `RoutingRule` matching already implemented, see "Routing rules" above),
 persisted connection history (distinct from the live, in-memory connection
 list already implemented — see "Live connections" above), speed test,
-diagnostics/backup, sing-box dashboard
-embedding, window-chrome commands (Linux custom titlebar), native file
-dialogs. The Electron implementations of all of these are the reference for
+sing-box dashboard embedding, window-chrome commands (Linux custom
+titlebar). Config backup/restore, a redacted diagnostic export, and native
+file dialogs are implemented — see "Backup & diagnostics" above. The
+Electron implementations of the still-deferred items are the reference for
 *behavior* once we get to them — see `FlowZ/src/main/services/` in the
 sibling Electron repo.
