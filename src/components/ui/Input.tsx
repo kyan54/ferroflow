@@ -22,10 +22,25 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 Textarea.displayName = "Textarea";
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  // `className` lands on the wrapper, not the inner <select>, so layout
+  // utilities callers pass (e.g. `flex-1` to grow inside a flex row, as
+  // DashboardView's server picker does) apply to the element that's
+  // actually the flex/grid child -- the <select> itself always fills
+  // whatever width the wrapper ends up with via FIELD_CLASSES' `w-full`.
   ({ className, children, ...props }, ref) => (
-    <select ref={ref} className={cn(FIELD_CLASSES, "h-9", className)} {...props}>
-      {children}
-    </select>
+    <div className={cn("relative", className)}>
+      <select ref={ref} className={cn(FIELD_CLASSES, "h-9 w-full appearance-none pr-8")} {...props}>
+        {children}
+      </select>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 20 20"
+        fill="none"
+        className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint"
+      >
+        <path d="M5.5 7.5L10 12l4.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
   ),
 );
 Select.displayName = "Select";

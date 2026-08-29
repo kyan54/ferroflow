@@ -29,9 +29,17 @@ function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
     <Card>
       <form onSubmit={handleSubmit}>
         <CardHeader>
-          <CardTitle>Import from URL</CardTitle>
+          <CardTitle>Import from subscription URL</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-4">
+          <p className="text-sm text-fg-faint">
+            Fetches the URL and imports every server it contains. Supports a base64-encoded body or
+            plain text, one share link per line ( <code className="font-mono text-fg-dim">vless://</code>,{" "}
+            <code className="font-mono text-fg-dim">trojan://</code>,{" "}
+            <code className="font-mono text-fg-dim">ss://</code>,{" "}
+            <code className="font-mono text-fg-dim">vmess://</code> ). Importing the same URL twice
+            appends duplicates — there's no dedupe yet.
+          </p>
           <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
             Subscription URL
             <Input
