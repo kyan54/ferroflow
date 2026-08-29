@@ -37,6 +37,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Fetch sing-box dashboard assets
+        run: npm run fetch:dashboard
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
