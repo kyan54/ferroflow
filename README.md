@@ -4,16 +4,19 @@ A Tauri 2 + Rust rewrite of [FlowZ](https://github.com/kyan54/FlowZ) (an
 Electron sing-box proxy client), targeting Windows/macOS/Linux desktop with
 a much smaller memory/CPU footprint than the Electron original.
 
-**Status: functionally complete core proxy client, unsigned/unpackaged for
+**Status: functionally complete core proxy client, unsigned for
 distribution.** All Rust crates and the frontend are verified in CI on all
 three platforms on every push; see `docs/ipc-contract.md` for the exact
 command surface and any per-feature caveats.
 
 ## What works today
 
-- **Servers**: add/edit/delete (Vless, Trojan, Shadowsocks, Vmess, incl.
-  Reality), or bulk-import from a subscription URL (base64 or plaintext
-  share-link list).
+- **Servers**: add/edit/delete (Vless, Trojan, Shadowsocks, Vmess, WireGuard,
+  incl. Reality), or bulk-import from a subscription URL (base64 or
+  plaintext share-link list).
+- **Cloudflare WARP**: one-click anonymous device registration against
+  Cloudflare's real public API (the same one `wgcf` uses), producing a
+  ready-to-use WireGuard server.
 - **Routing rules**: domain/domain-suffix/domain-keyword/IP-CIDR/process-name
   matching to proxy/direct/block, evaluated in list order.
 - **Three take-over modes**: System Proxy (real OS-level proxy set/clear on
@@ -33,42 +36,46 @@ command surface and any per-feature caveats.
   totals.
 - **Connection history** (opt-in, off by default): a local, unencrypted
   JSON-lines log of finished connections, capped at 1000 entries.
-- **WireGuard** as a fifth protocol (manual entry — there's no standardized
-  WireGuard share-link format to parse, unlike the other four). Uses
-  sing-box's current `endpoints`-based shape (the old `wireguard` outbound
-  was removed in sing-box 1.13.0 — caught by this project's insistence on
-  validating every new protocol against a real `sing-box check`, not just
-  documentation).
+- **sing-box official dashboard**: opens SagerNet's real dashboard build in
+  a second window, pre-seeded with the running instance's connection info.
+  Wired correctly (verified byte-for-byte against the real fetched source),
+  but currently can't show live data against any released sing-box version
+  — see "Known gaps".
 - **Backup/restore**: export/import the full config (servers, rules,
   settings) as a versioned JSON file via native save/open dialogs.
 - **Diagnostic export**: a redacted Markdown report (secrets stripped) safe
   to paste into a bug report.
 - **Packaging**: `npm run tauri build` produces a real MSI + NSIS installer
-  on Windows (confirmed on this machine — both installers built, and the
-  release binary launches standalone). macOS/Linux bundling is configured
-  the same way but hasn't been run on real hardware; `.github/workflows/
-  release.yml` builds all three platforms and drafts a GitHub Release on
-  a `v*` tag push. **Nothing is code-signed or notarized** — same posture
-  as the upstream Electron app (also unsigned).
+  on Windows, confirmed twice on this machine (including with the bundled
+  dashboard assets — installers grew from ~9MB/5.7MB to ~16MB/12.6MB as
+  expected). macOS/Linux bundling is configured the same way but hasn't
+  been run on real hardware. `.github/workflows/release.yml` builds all
+  three platforms and drafts a GitHub Release on a `v*` tag push — the
+  full pipeline (including GitHub Release creation, which needed an
+  explicit `contents: write` permission fix) has been validated end to end.
+  **Nothing is code-signed or notarized** — same posture as the upstream
+  Electron app.
 
 ## Known gaps
 
 - **macOS/helper-linux runtime**: real hardware has never actually run
   `launchctl bootstrap`/`systemctl enable --now` for these helpers — CI
   only confirms they compile and pass unit tests on those targets.
-- **No dedupe** on repeated subscription imports (append-only).
+- **No dedupe** on repeated subscription imports (append-only). Deleting a
+  WARP-derived server locally doesn't deregister the device from Cloudflare.
 - **Clash API has no auth** (loopback-only, MVP simplification — see
   `docs/ipc-contract.md`).
-- **Not implemented at all**: Cloudflare WARP (needs a real registration
-  call against Cloudflare's API with a pinned TLS/HTTP fingerprint — real
-  but fragile-to-verify-offline network behavior, deliberately not
-  attempted without a way to test it against the live service) and
-  Tailscale (sing-box has no native Tailscale outbound the way it does for
-  WireGuard; the upstream Electron app embeds Go's `tsnet`, which has no
-  drop-in Rust equivalent — would need either shelling out to a real
-  `tailscale` CLI the user already has installed, or a much larger custom
-  integration). Also not implemented: speed test, the sing-box web
-  dashboard embed.
+- **sing-box dashboard shows "connection failed"**: the real, current
+  `SagerNet/sing-box-dashboard` gh-pages build talks exclusively gRPC-Web to
+  a `daemon.StartedService` RPC that no released sing-box version (1.13.19
+  stable or 1.14.0-rc.2, both tested) actually serves. This app's side of
+  the integration is correct; it'll start working once sing-box ships that
+  service in a release.
+- **Not implemented at all**: Tailscale (sing-box has no native Tailscale
+  outbound the way it does for WireGuard; the upstream Electron app embeds
+  Go's `tsnet`, which has no drop-in Rust equivalent — would need either
+  shelling out to a real `tailscale` CLI the user already has installed, or
+  a much larger custom integration), speed test.
 - **No code signing** — Windows SmartScreen / macOS Gatekeeper will warn on
   install; the same is true of upstream FlowZ's own unsigned builds. This
   needs a real certificate the project doesn't have, not just more code.
@@ -81,8 +88,17 @@ command surface and any per-feature caveats.
 
 ```bash
 npm install
+npm run fetch:dashboard   # required -- see note below, even for cargo check
 npm run tauri dev
 ```
+
+**`npm run fetch:dashboard` is not optional**, even if you don't care about
+the dashboard feature: Tauri's build script validates every path in
+`tauri.conf.json`'s `bundle.resources` at *compile* time, not just when
+actually bundling — `cargo check`/`cargo build`/`cargo test` on the
+`ferroflow` package will fail with `resource path "resources\dashboard"
+doesn't exist` until this has been run once. (This bit CI initially; both
+`build.yml` and `release.yml` run it before any `cargo` step.)
 
 Rust workspace: `cargo check --workspace` / `cargo test --workspace --exclude ferroflow`
 (the `ferroflow` src-tauri package itself has no unit tests — the Tauri
@@ -104,5 +120,6 @@ crates/helper-client/      unprivileged client for talking to the helpers
 crates/core-manager/       sing-box process + config generation + Clash API client
 crates/net/                system-proxy management (real, per-platform)
 crates/subscription/       subscription-link fetch + parse
+crates/warp/                Cloudflare WARP registration
 crates/helper-*/           per-platform privileged helper binaries
 ```
