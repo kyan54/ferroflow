@@ -2,6 +2,7 @@ pub mod backup;
 pub mod config;
 pub mod connections;
 pub mod helper;
+pub mod history;
 #[cfg(target_os = "windows")]
 pub mod helper_windows;
 #[cfg(target_os = "macos")]

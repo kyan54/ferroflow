@@ -40,6 +40,31 @@ fn helper_token_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("helper-token"))
 }
 
+/// Path to the local connection-history log (`commands::history`,
+/// `core_manager::history`) -- plain JSON lines, one finished connection per
+/// line, no encryption (see `docs/ipc-contract.md`'s "Connection history"
+/// section). Only ever written to when the user has explicitly opted in
+/// (`UserConfig::connection_history_enabled`); this function just picks
+/// where that file would live, same convention as `config_path`/
+/// `helper_token_path` above.
+pub fn history_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_config_dir().ok()?;
+    Some(dir.join("connection-history.jsonl"))
+}
+
+/// Configures `core_manager`'s history log path once `AppHandle` is
+/// available -- mirrors `load_persisted_helper_token`'s exact reasoning:
+/// `CoreManager` is constructed with no app-data-directory knowledge of its
+/// own, so this pushes the path in after the fact. Must run before any
+/// `proxy_start` could occur (see `lib.rs`'s `.setup()` hook, where this is
+/// called alongside `load_persisted_config`/`load_persisted_helper_token`)
+/// so a `connection_history_enabled` run started right at startup doesn't
+/// race past this and silently get no recorder.
+pub fn init_history_path(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    state.core_manager.set_history_path(history_path(app));
+}
+
 /// Best-effort load at startup, mirroring `load_persisted_config`: a
 /// missing file (first run, or Linux where none is ever written) just
 /// leaves `helper_token`/`core_manager`'s copy at `None`.

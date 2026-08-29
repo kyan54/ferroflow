@@ -153,7 +153,7 @@ mod tests {
         };
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[])
+            .start(&server, ProxyModeType::SystemProxy, &[], false)
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);

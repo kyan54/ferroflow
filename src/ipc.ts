@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ConnectionsSnapshot,
   HelperStatus,
+  HistoryEntry,
   PlatformInfo,
   ProxyStatus,
   RoutingRule,
@@ -34,6 +35,9 @@ export const ipc = {
   connectionsList: () => invoke<ConnectionsSnapshot>("connections_list"),
   connectionsClose: (id: string) => invoke<void>("connections_close", { id }),
   connectionsCloseAll: () => invoke<void>("connections_close_all"),
+
+  historyList: () => invoke<HistoryEntry[]>("history_list"),
+  historyClear: () => invoke<void>("history_clear"),
 
   subscriptionImport: (url: string) => invoke<UserConfig>("subscription_import", { url }),
 

@@ -26,7 +26,7 @@ export function SettingsView() {
     return <div className="p-6 text-sm text-slate-500 dark:text-slate-400">Loading…</div>;
   }
 
-  function toggle(key: "autoStart" | "minimizeToTray") {
+  function toggle(key: "autoStart" | "minimizeToTray" | "connectionHistoryEnabled") {
     if (!config) return;
     saveConfig({ ...config, [key]: !config[key] });
   }
@@ -81,6 +81,20 @@ export function SettingsView() {
             onChange={() => toggle("minimizeToTray")}
           />
         </label>
+
+        <label className="mt-3 flex items-center justify-between text-sm">
+          <span>Record connection history</span>
+          <input
+            type="checkbox"
+            checked={config.connectionHistoryEnabled}
+            onChange={() => toggle("connectionHistoryEnabled")}
+          />
+        </label>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Off by default. Only applies the next time the proxy starts -- toggling this while
+          already connected does not retroactively record the current session. Recorded locally as
+          plain, unencrypted JSON, capped at the most recent 1000 finished connections.
+        </p>
 
         <div className="mt-4">
           <label className="flex flex-col gap-1 text-sm">

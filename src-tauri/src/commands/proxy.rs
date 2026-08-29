@@ -12,11 +12,11 @@ pub async fn proxy_start(state: State<'_, AppState>, server_id: String) -> AppRe
     let Some(server) = server else {
         return Err(AppError::new("server_not_found", format!("no server with id {server_id}")));
     };
-    let (mode_type, rules) = {
+    let (mode_type, rules, connection_history_enabled) = {
         let config = state.config.lock().unwrap();
-        (config.proxy_mode_type, config.rules.clone())
+        (config.proxy_mode_type, config.rules.clone(), config.connection_history_enabled)
     };
-    state.core_manager.start(&server, mode_type, &rules).await
+    state.core_manager.start(&server, mode_type, &rules, connection_history_enabled).await
 }
 
 #[tauri::command]

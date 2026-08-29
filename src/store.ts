@@ -5,6 +5,7 @@ import { appErrorMessage } from "./types";
 import type {
   ConnectionsSnapshot,
   HelperStatus,
+  HistoryEntry,
   PlatformInfo,
   ProxyStatus,
   RoutingRule,
@@ -34,6 +35,7 @@ interface AppStore {
   platformInfo: PlatformInfo | null;
   helperStatus: HelperStatus | null;
   connectionsSnapshot: ConnectionsSnapshot | null;
+  historyEntries: HistoryEntry[];
 
   configLoading: boolean;
   proxyBusy: boolean;
@@ -71,6 +73,9 @@ interface AppStore {
   closeConnection: (id: string) => Promise<void>;
   closeAllConnections: () => Promise<void>;
 
+  refreshHistory: () => Promise<void>;
+  clearHistory: () => Promise<void>;
+
   exportBackup: () => Promise<void>;
   importBackup: () => Promise<void>;
   exportDiagnostic: () => Promise<void>;
@@ -83,6 +88,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   platformInfo: null,
   helperStatus: null,
   connectionsSnapshot: null,
+  historyEntries: [],
 
   configLoading: false,
   proxyBusy: false,
@@ -363,6 +369,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await get().refreshConnections();
     } catch (err) {
       get().pushToast("error", `Failed to close all connections: ${appErrorMessage(err)}`);
+    }
+  },
+
+  refreshHistory: async () => {
+    try {
+      const historyEntries = await ipc.historyList();
+      set({ historyEntries });
+    } catch (err) {
+      // Unlike `refreshConnections`, there's no "expected" failure mode here
+      // (a missing/never-enabled history file is `Ok([])`, not an error) --
+      // a thrown error means something genuinely went wrong reading the
+      // file, worth a toast.
+      get().pushToast("error", `Failed to load connection history: ${appErrorMessage(err)}`);
+    }
+  },
+
+  clearHistory: async () => {
+    try {
+      await ipc.historyClear();
+      set({ historyEntries: [] });
+      get().pushToast("success", "Connection history cleared");
+    } catch (err) {
+      get().pushToast("error", `Failed to clear connection history: ${appErrorMessage(err)}`);
     }
   },
 

@@ -22,6 +22,8 @@ pub fn run() {
             commands::connections::connections_list,
             commands::connections::connections_close,
             commands::connections::connections_close_all,
+            commands::history::history_list,
+            commands::history::history_clear,
             commands::rules::rules_add,
             commands::rules::rules_update,
             commands::rules::rules_delete,
@@ -39,6 +41,9 @@ pub fn run() {
         .setup(|app| {
             state::load_persisted_config(app.handle());
             state::load_persisted_helper_token(app.handle());
+            // Must run before any `proxy_start` could occur -- see
+            // `state::init_history_path`'s doc comment.
+            state::init_history_path(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

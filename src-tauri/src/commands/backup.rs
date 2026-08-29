@@ -388,6 +388,7 @@ mod tests {
             auto_connect: true,
             minimize_to_tray: true,
             language: Some("en".to_string()),
+            connection_history_enabled: false,
         }
     }
 

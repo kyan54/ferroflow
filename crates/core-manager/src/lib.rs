@@ -12,6 +12,7 @@
 
 pub mod clash_api;
 pub mod config;
+pub mod history;
 pub mod process;
 pub mod tun;
 
@@ -26,6 +27,7 @@ use shared_types::{
     RoutingRule, ServerConfig,
 };
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 use process::ProcessHandle;
 
@@ -64,6 +66,13 @@ struct RunningCore {
     /// — traffic visibility doesn't depend on which inbound is active — so
     /// this is not `Option`.
     clash_api_port: u16,
+    /// The background `history::HistoryRecorder` task for this run, if
+    /// `connection_history_enabled` was `true` and a history path was
+    /// configured at `start()` time — `None` otherwise (history disabled, or
+    /// `set_history_path` was never called). Aborted in `stop_running` — see
+    /// that method's doc comment for why a hard `.abort()` rather than a
+    /// cooperative cancellation channel is fine here.
+    history_task: Option<JoinHandle<()>>,
 }
 
 pub struct CoreManager {
@@ -80,6 +89,14 @@ pub struct CoreManager {
     /// mode (`net::SystemProxyManager` is a zero-sized dispatcher, not
     /// per-instance state, so one shared here is fine).
     system_proxy: net::SystemProxyManager,
+    /// Where `history::HistoryRecorder` should write finished-connection log
+    /// lines, once configured — `None` until `set_history_path` is called
+    /// (this type has no app-data-directory knowledge of its own, same
+    /// reasoning as `helper_token` above) or if the caller explicitly clears
+    /// it back to `None`. Read fresh at the top of every `start()` call, so
+    /// a path set after construction applies to every run started after
+    /// that point.
+    history_dir_or_path: StdMutex<Option<PathBuf>>,
 }
 
 impl CoreManager {
@@ -97,6 +114,7 @@ impl CoreManager {
             running: Mutex::new(None),
             helper_token: StdMutex::new(None),
             system_proxy: net::SystemProxyManager::new(),
+            history_dir_or_path: StdMutex::new(None),
         }
     }
 
@@ -108,6 +126,19 @@ impl CoreManager {
     /// this `CoreManager` was constructed doesn't require rebuilding it.
     pub fn set_helper_token(&self, token: Option<String>) {
         *self.helper_token.lock().unwrap() = token;
+    }
+
+    /// Sets (or clears, with `None`) the file path `history::HistoryRecorder`
+    /// appends finished-connection log lines to for subsequent `start()`
+    /// calls where `connection_history_enabled` is `true`. Mirrors
+    /// `set_helper_token` exactly: `CoreManager` is constructed with no
+    /// app-data-directory knowledge of its own, so `src-tauri`'s setup hook
+    /// calls this once `AppHandle`/`app_config_dir()` are available (see
+    /// `state::init_history_path`) — a run started before that call simply
+    /// gets no history recorder (see `start()`'s doc comment), same as a
+    /// `Tun`-mode start before `set_helper_token` would fail outright.
+    pub fn set_history_path(&self, path: Option<PathBuf>) {
+        *self.history_dir_or_path.lock().unwrap() = path;
     }
 
     fn helper_client(&self) -> HelperClient {
@@ -156,11 +187,27 @@ impl CoreManager {
     /// straight through to `config::build_config`/`build_tun_config` — see
     /// `config::build_route_rules` for how disabled/empty-values rules are
     /// filtered out and mapped to sing-box `route.rules` entries.
+    ///
+    /// `connection_history_enabled` is the caller's current
+    /// `UserConfig.connection_history_enabled` (opt-in, default `false`) —
+    /// when `true` *and* a path has been configured via `set_history_path`,
+    /// a `history::HistoryRecorder` background task is spawned against this
+    /// run's `clash_api_port` right before returning. Neither condition
+    /// alone is enough: `true` with no path configured (e.g. this call
+    /// happens before `src-tauri`'s setup hook runs) spawns nothing rather
+    /// than erroring, and a path configured with the flag `false` likewise
+    /// spawns nothing — this is a deliberately best-effort, silent-skip
+    /// feature, not one that can fail `start()` outright. Only applies to
+    /// runs started *after* the flag was turned on; flipping it while a
+    /// proxy is already running does not retroactively start logging that
+    /// run (there is no live-reconfiguration path here, matching this
+    /// codebase's stated preference for not over-engineering MVP features).
     pub async fn start(
         &self,
         server: &ServerConfig,
         mode_type: ProxyModeType,
         rules: &[RoutingRule],
+        connection_history_enabled: bool,
     ) -> AppResult<ProxyStatus> {
         let mut guard = self.running.lock().await;
 
@@ -226,6 +273,8 @@ impl CoreManager {
 
                 let pid = handle.pid();
                 let start_time_millis = now_millis();
+                let history_task =
+                    self.spawn_history_task_if_enabled(connection_history_enabled, clash_api_port);
 
                 *guard = Some(RunningCore {
                     backend: Backend::Local(Box::new(handle)),
@@ -235,6 +284,7 @@ impl CoreManager {
                     mode_type,
                     local_port: Some(port),
                     clash_api_port,
+                    history_task,
                 });
 
                 Ok(ProxyStatus {
@@ -278,6 +328,8 @@ impl CoreManager {
                 }
 
                 let start_time_millis = now_millis();
+                let history_task =
+                    self.spawn_history_task_if_enabled(connection_history_enabled, clash_api_port);
 
                 *guard = Some(RunningCore {
                     backend: Backend::Helper,
@@ -287,6 +339,7 @@ impl CoreManager {
                     mode_type,
                     local_port: None,
                     clash_api_port,
+                    history_task,
                 });
 
                 Ok(ProxyStatus {
@@ -305,6 +358,19 @@ impl CoreManager {
                 })
             }
         }
+    }
+
+    /// Spawns a `history::HistoryRecorder` background task for a just-started
+    /// run when `enabled` is `true` and a history path has been configured
+    /// (`set_history_path`) — `None` (no task) in every other case. See
+    /// `start()`'s doc comment for the full "both conditions required, never
+    /// errors" reasoning.
+    fn spawn_history_task_if_enabled(&self, enabled: bool, clash_api_port: u16) -> Option<JoinHandle<()>> {
+        if !enabled {
+            return None;
+        }
+        let path = self.history_dir_or_path.lock().unwrap().clone()?;
+        Some(history::HistoryRecorder::spawn(clash_api_port, path))
     }
 
     /// Stops whichever backend is tracked, if any, and cleans up its temp
@@ -336,6 +402,22 @@ impl CoreManager {
         }
         self.disable_system_proxy_if_needed(&running);
         let _ = std::fs::remove_file(&running.config_path);
+
+        // Hard `.abort()` rather than a cooperative cancellation channel
+        // (e.g. a oneshot the loop selects against): this loop has no
+        // critical section that needs graceful unwinding — worst case, an
+        // abort lands mid-iteration and loses one in-flight Clash API fetch
+        // or file write, which is an acceptable tradeoff for a best-effort
+        // background logger. `.abort()` also takes effect at the task's next
+        // `.await` point, which in practice is immediate here since nearly
+        // the entire loop body is awaits (the `tokio::time::sleep` between
+        // ticks included) — a cooperative channel would only be checked once
+        // per multi-second tick, so `.abort()` is both simpler *and* faster
+        // to actually stop. This also prevents a subsequent `start()` from
+        // racing with a stale recorder still appending to the same file.
+        if let Some(handle) = running.history_task.take() {
+            handle.abort();
+        }
     }
 
     /// Best-effort: reverses `start()`'s `system_proxy.enable()` call for a
@@ -567,7 +649,7 @@ mod tests {
     async fn start_with_missing_binary_returns_core_start_failed() {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::SystemProxy, &[]).await.unwrap_err();
+        let err = manager.start(&server, ProxyModeType::SystemProxy, &[], false).await.unwrap_err();
         assert_eq!(err.code, "core_start_failed");
     }
 
@@ -579,7 +661,7 @@ mod tests {
         // this test environment) and mask a routing bug.
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::Manual, &[]).await.unwrap_err();
+        let err = manager.start(&server, ProxyModeType::Manual, &[], false).await.unwrap_err();
         assert_eq!(err.code, "core_start_failed");
     }
 
@@ -593,7 +675,7 @@ mod tests {
         // create a TUN interface).
         let manager = CoreManager::with_binary_path("does-not-matter-for-this-path");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::Tun, &[]).await.unwrap_err();
+        let err = manager.start(&server, ProxyModeType::Tun, &[], false).await.unwrap_err();
         assert_eq!(err.code, "helper_unavailable");
     }
 
@@ -626,7 +708,7 @@ mod tests {
         let server = test_server();
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[])
+            .start(&server, ProxyModeType::SystemProxy, &[], false)
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);
