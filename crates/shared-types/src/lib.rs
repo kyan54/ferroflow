@@ -81,6 +81,12 @@ pub struct ProxyStatus {
     pub error: Option<String>,
     pub error_code: Option<ProxyErrorCode>,
     pub current_server_id: Option<String>,
+    /// The local `mixed` (HTTP+SOCKS) inbound's port, when this run has one
+    /// (`SystemProxy`/`Manual` modes). `None` for `Tun` mode, which has no
+    /// local inbound to report, and whenever nothing is running. Surfaced
+    /// mainly for `Manual` mode, where the user needs this to point their
+    /// own apps at the proxy by hand.
+    pub local_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

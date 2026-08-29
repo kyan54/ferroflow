@@ -48,6 +48,15 @@ struct RunningCore {
     server_id: String,
     start_time_millis: i64,
     config_path: PathBuf,
+    /// Which mode this run was started under — `Backend::Local` alone
+    /// doesn't distinguish `SystemProxy` from `Manual` (both spawn a plain
+    /// local process), but only `SystemProxy` should ever have
+    /// `system_proxy.disable()` called against it on stop/crash.
+    mode_type: ProxyModeType,
+    /// The local `mixed` inbound's port, when this run has one
+    /// (`SystemProxy`/`Manual`) — `None` for `Tun`. Mirrored into
+    /// `ProxyStatus::local_port`.
+    local_port: Option<u16>,
 }
 
 pub struct CoreManager {
@@ -60,6 +69,10 @@ pub struct CoreManager {
     /// non-async sections (a clone into a `HelperClient::new` call), never
     /// held across an `.await`.
     helper_token: StdMutex<Option<String>>,
+    /// Owns actually pointing the OS at the local proxy for `SystemProxy`
+    /// mode (`net::SystemProxyManager` is a zero-sized dispatcher, not
+    /// per-instance state, so one shared here is fine).
+    system_proxy: net::SystemProxyManager,
 }
 
 impl CoreManager {
@@ -76,6 +89,7 @@ impl CoreManager {
             binary_path: binary_path.into(),
             running: Mutex::new(None),
             helper_token: StdMutex::new(None),
+            system_proxy: net::SystemProxyManager::new(),
         }
     }
 
@@ -172,6 +186,24 @@ impl CoreManager {
                     )
                 })?;
 
+                // `SystemProxy` mode promises the OS actually routes through
+                // this proxy -- if we can't make that true, fail loudly
+                // rather than leave the user thinking they're covered while
+                // sing-box quietly listens to nothing. `Manual` mode makes
+                // no such promise (the user points their own apps at
+                // `local_port` by hand), so it skips this entirely.
+                if matches!(mode_type, ProxyModeType::SystemProxy) {
+                    if let Err(e) = self.system_proxy.enable(port, port) {
+                        let mut handle = handle;
+                        let _ = handle.stop().await;
+                        let _ = std::fs::remove_file(&config_path);
+                        return Err(AppError::new(
+                            "system_proxy_failed",
+                            format!("sing-box started but enabling the system proxy failed: {e}"),
+                        ));
+                    }
+                }
+
                 let pid = handle.pid();
                 let start_time_millis = now_millis();
 
@@ -180,6 +212,8 @@ impl CoreManager {
                     server_id: server.id.clone(),
                     start_time_millis,
                     config_path,
+                    mode_type,
+                    local_port: Some(port),
                 });
 
                 Ok(ProxyStatus {
@@ -190,6 +224,7 @@ impl CoreManager {
                     error: None,
                     error_code: None,
                     current_server_id: Some(server.id.clone()),
+                    local_port: Some(port),
                 })
             }
             ProxyModeType::Tun => {
@@ -221,6 +256,8 @@ impl CoreManager {
                     server_id: server.id.clone(),
                     start_time_millis,
                     config_path,
+                    mode_type,
+                    local_port: None,
                 });
 
                 Ok(ProxyStatus {
@@ -235,6 +272,7 @@ impl CoreManager {
                     error: None,
                     error_code: None,
                     current_server_id: Some(server.id.clone()),
+                    local_port: None,
                 })
             }
         }
@@ -267,7 +305,23 @@ impl CoreManager {
                 }
             }
         }
+        self.disable_system_proxy_if_needed(&running);
         let _ = std::fs::remove_file(&running.config_path);
+    }
+
+    /// Best-effort: reverses `start()`'s `system_proxy.enable()` call for a
+    /// `SystemProxy`-mode run, whether it's ending via an explicit
+    /// `stop()`/being superseded by a new `start()`, or because `status()`
+    /// just detected it died on its own. Leaving the OS pointed at a proxy
+    /// that's no longer running would silently break the user's system
+    /// traffic, so this runs on every path that clears a `SystemProxy` run
+    /// out of `self.running` — not just the happy-path stop.
+    fn disable_system_proxy_if_needed(&self, running: &RunningCore) {
+        if matches!(running.mode_type, ProxyModeType::SystemProxy) {
+            if let Err(e) = self.system_proxy.disable() {
+                tracing::warn!("error disabling system proxy: {e}");
+            }
+        }
     }
 
     /// Reports whether the tracked run is still alive, with uptime since
@@ -293,12 +347,13 @@ impl CoreManager {
                         error: None,
                         error_code: None,
                         current_server_id: Some(running.server_id.clone()),
+                        local_port: running.local_port,
                     })
                 } else {
                     let exit_desc = handle.exit_description();
-                    let config_path = running.config_path.clone();
-                    *guard = None;
-                    let _ = std::fs::remove_file(&config_path);
+                    let finished = guard.take().expect("just matched Some(running) above");
+                    self.disable_system_proxy_if_needed(&finished);
+                    let _ = std::fs::remove_file(&finished.config_path);
 
                     Ok(ProxyStatus {
                         running: false,
@@ -332,11 +387,12 @@ impl CoreManager {
                         error: None,
                         error_code: None,
                         current_server_id: Some(running.server_id.clone()),
+                        local_port: None,
                     })
                 } else {
-                    let config_path = running.config_path.clone();
-                    *guard = None;
-                    let _ = std::fs::remove_file(&config_path);
+                    let finished = guard.take().expect("just matched Some(running) above");
+                    self.disable_system_proxy_if_needed(&finished);
+                    let _ = std::fs::remove_file(&finished.config_path);
 
                     Ok(ProxyStatus {
                         running: false,
