@@ -30,11 +30,57 @@ try {
 | `proxy_status` | — | `ProxyStatus` | delegates to `core-manager` |
 | `system_proxy_status` | — | `SystemProxyStatus` | delegates to `net` |
 | `platform_info` | — | `PlatformInfo` | `is_admin`/`os_version` still stubbed to `false`/`""` |
+| `helper_get_status` | — | `HelperStatus` | pings the platform helper; `installed`/`ready` both `false` if unreachable |
+| `helper_install` | — | `HelperStatus` | one-time elevated install (UAC/osascript/pkexec); see "Helper install flow" below |
+| `helper_uninstall` | — | `HelperStatus` | reverses install |
 
-`core-manager` and `net`'s methods currently return
-`Err(AppError{code:"not_implemented",..})` — that's the seam the
-core-manager/net/helper subagents fill in. The command layer itself doesn't
-need to change when they do.
+`net`'s methods currently return `Err(AppError{code:"not_implemented",..})`
+— that's the seam a future `net` subagent fills in (system-proxy set/clear
+isn't wired up yet, only its read-only `status()`).
+
+`proxy_start`/`proxy_stop`/`proxy_status` now route through the platform
+helper instead of a plain child process whenever
+`config.proxyModeType === "tun"` **and** the helper is installed+ready;
+otherwise (`"systemProxy"`/`"manual"`, or TUN requested with no helper)
+they use the original unprivileged `core-manager`-owned child process.
+Requesting TUN with no helper installed returns
+`AppError{code:"helper_unavailable"}` (`ProxyErrorCode::HelperUnavailable`)
+rather than silently falling back — the frontend should call
+`helper_get_status`/`helper_install` first and only then retry `proxy_start`.
+
+## Helper install flow
+
+One-time, one-elevation-prompt setup, mirroring each helper crate's own
+`install.rs` doc comments (see `crates/helper-{windows,macos,linux}/src/install.rs`):
+
+- **Windows**: `commands::helper_windows` generates a token, writes it to a
+  private temp file, runs the bundled `ferroflow-helper-windows.exe
+  --install --token-file <path>` via `Start-Process -Verb RunAs` (one UAC
+  prompt), then persists the token client-side (see below) and deletes the
+  temp file.
+- **macOS**: `commands::helper_macos` calls
+  `helper_macos::install::build_install_script(helper_binary_path)`
+  (already generates + returns the token — no separate generation step),
+  writes the returned script to a private temp file, runs it via
+  `osascript -e 'do shell script "/bin/bash <path>" with administrator
+  privileges'` (one prompt), persists the token, deletes the temp file.
+- **Linux**: `commands::helper_linux` calls
+  `helper_linux::install::build_install_script(helper_binary_path, uid,
+  bundled_core_path)`, writes it to a temp file, runs `pkexec /bin/sh
+  <path>` (one prompt). No token — Linux auth is `SO_PEERCRED`-based.
+
+All three then poll `HelperClient::ping()` (bounded retries — systemd/
+launchd/SCM need a moment to actually start the unit) before returning
+`HelperStatus{installed:true, ready:true, ..}`.
+
+Token persistence (Windows/macOS only): `<app_config_dir>/helper-token`,
+loaded into `AppState.helper_token` at startup and pushed into
+`CoreManager::set_helper_token` — see `state.rs`. Binary discovery for the
+bundled helper executable mirrors `core-manager`'s `locate_binary`
+convention: `FERROFLOW_HELPER_PATH` env var → `.dev-bin/<helper-exe-name>`
+(dev convenience, gitignored) → Tauri `resource_dir()` (packaged case, not
+wired into `tauri.conf.json` bundling yet — that's a packaging-pass
+follow-up, not blocking for dev/CI).
 
 ## Types (`crates/shared-types/src/lib.rs`)
 

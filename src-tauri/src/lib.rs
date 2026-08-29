@@ -21,9 +21,13 @@ pub fn run() {
             commands::proxy::proxy_status,
             commands::system::system_proxy_status,
             commands::system::platform_info,
+            commands::helper::helper_get_status,
+            commands::helper::helper_install,
+            commands::helper::helper_uninstall,
         ])
         .setup(|app| {
             state::load_persisted_config(app.handle());
+            state::load_persisted_helper_token(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

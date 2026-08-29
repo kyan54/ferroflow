@@ -26,20 +26,17 @@
 //! executed against a real kernel. That happens for the first time in CI on
 //! an actual Linux runner. See the implementation report for exactly which
 //! syscall-ordering assumptions to scrutinize first.
-
-#[cfg(target_os = "linux")]
-mod install;
-#[cfg(target_os = "linux")]
-mod paths;
-#[cfg(target_os = "linux")]
-mod service;
+//!
+//! Thin binary entry point — see `lib.rs` for the module layout (mirrors
+//! `helper-macos`'s bin/lib split, so `install`/`paths` are callable from
+//! `src-tauri` as a library too, not just from this binary).
 
 #[tokio::main]
 async fn main() {
     #[cfg(target_os = "linux")]
     {
         tracing_subscriber::fmt::init();
-        if let Err(err) = service::run().await {
+        if let Err(err) = helper_linux::service::run().await {
             tracing::error!("helper-linux exited: {err}");
             std::process::exit(1);
         }

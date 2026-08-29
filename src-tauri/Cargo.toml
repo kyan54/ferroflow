@@ -33,8 +33,39 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shared-types = { workspace = true }
 core-manager = { workspace = true }
+helper-client = { workspace = true }
+# Not in `[workspace.dependencies]` (only `helper-client`/`helper-proto` are)
+# since this is the one platform-specific helper crate `src-tauri` needs
+# directly, for the install/uninstall script-building API in
+# `helper_macos::install`. Safe to depend on unconditionally here even
+# though its content is entirely `#[cfg(target_os = "macos")]`-gated
+# internally (see that crate's `lib.rs`) — same reasoning as
+# `helper-macos`'s own `Cargo.toml` gating its one genuinely
+# Windows-incompatible dependency (`nix`) instead of the whole crate.
+helper-macos = { path = "../crates/helper-macos" }
+# Same reasoning as `helper-macos` above: the one platform-specific helper
+# crate this side needs directly, for `helper_linux::install`'s pkexec
+# script-building API. Safe unconditionally despite being entirely
+# `#[cfg(target_os = "linux")]`-gated internally (see that crate's `lib.rs`).
+helper-linux = { path = "../crates/helper-linux" }
 net = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+rand = "0.8"
+hex = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_UI_Shell",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Registry",
+] }
+
+# `helper_linux.rs` calls `libc::getuid()` to resolve the caller's uid for
+# the pkexec install script's allow-list entry. Target-gated because
+# `getuid` doesn't exist on Windows.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 

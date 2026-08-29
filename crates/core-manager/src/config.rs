@@ -16,6 +16,15 @@ use std::net::Ipv4Addr;
 use serde_json::{json, Value};
 use shared_types::{Protocol, ServerConfig, TlsConfig};
 
+use crate::tun;
+
+/// Default TUN interface name, used when nothing more specific is wired up
+/// (e.g. per-platform naming/collision-avoidance) — sing-box creates the
+/// interface under this name on all three desktop platforms it supports
+/// (`utun`-prefixed real name substitution happens internally on macOS
+/// regardless of what's requested here).
+const DEFAULT_TUN_INTERFACE_NAME: &str = "ferroflow-tun0";
+
 /// Tag of the generated proxy outbound — `route.final` points at this.
 pub const PROXY_OUTBOUND_TAG: &str = "proxy";
 /// Tag of the generated `direct` outbound.
@@ -143,12 +152,28 @@ pub fn build_inbound(port: u16) -> Value {
 /// no rules, no TUN — sing-box's own defaults cover DNS resolution for this
 /// scope.
 pub fn build_config(server: &ServerConfig, inbound_port: u16) -> Value {
+    build_config_with_inbound(server, build_inbound(inbound_port))
+}
+
+/// Assembles the full sing-box config for a single-server TUN-mode run: one
+/// `tun` inbound (see `tun::build_tun_inbound`) in place of the local
+/// `mixed` inbound, same outbounds/route as `build_config`. This is the
+/// config handed to the privileged helper (`HelperClient::start`) — a plain
+/// unprivileged process can't create a TUN interface, hence routing through
+/// the helper for this mode instead of `process::ProcessHandle`.
+pub fn build_tun_config(server: &ServerConfig) -> Value {
+    build_config_with_inbound(server, tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME))
+}
+
+/// Shared assembly: `inbound` is the only thing that differs between the
+/// mixed-proxy and TUN config shapes — outbounds/route are identical.
+fn build_config_with_inbound(server: &ServerConfig, inbound: Value) -> Value {
     json!({
         "log": {
             "level": "info",
             "timestamp": true,
         },
-        "inbounds": [build_inbound(inbound_port)],
+        "inbounds": [inbound],
         "outbounds": [
             build_outbound(server),
             {
@@ -293,6 +318,17 @@ mod tests {
         assert_eq!(cfg["inbounds"][0]["type"], "mixed");
         assert_eq!(cfg["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(cfg["inbounds"][0]["listen_port"], 12345);
+        assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
+        assert_eq!(cfg["outbounds"][1]["type"], "direct");
+        assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn full_tun_config_has_tun_inbound_and_final_route() {
+        let server = base_server(Protocol::Trojan);
+        let cfg = build_tun_config(&server);
+        assert_eq!(cfg["inbounds"][0]["type"], "tun");
+        assert_eq!(cfg["inbounds"][0]["interface_name"], DEFAULT_TUN_INTERFACE_NAME);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert_eq!(cfg["outbounds"][1]["type"], "direct");
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);

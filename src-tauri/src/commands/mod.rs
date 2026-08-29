@@ -1,3 +1,10 @@
 pub mod config;
+pub mod helper;
+#[cfg(target_os = "windows")]
+pub mod helper_windows;
+#[cfg(target_os = "macos")]
+pub mod helper_macos;
+#[cfg(target_os = "linux")]
+pub mod helper_linux;
 pub mod proxy;
 pub mod system;

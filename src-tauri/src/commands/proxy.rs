@@ -12,7 +12,8 @@ pub async fn proxy_start(state: State<'_, AppState>, server_id: String) -> AppRe
     let Some(server) = server else {
         return Err(AppError::new("server_not_found", format!("no server with id {server_id}")));
     };
-    state.core_manager.start(&server).await
+    let mode_type = state.config.lock().unwrap().proxy_mode_type;
+    state.core_manager.start(&server, mode_type).await
 }
 
 #[tauri::command]

@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use rand::RngCore;
 use windows_service::service::{
     ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
 };
@@ -28,12 +27,20 @@ pub const SERVICE_NAME: &str = "FerroFlowHelper";
 const SERVICE_DISPLAY_NAME: &str = "FerroFlow Helper";
 const SUPPORT_DIR: &str = r"C:\ProgramData\FerroFlow";
 
-/// `helper-windows.exe --install`: generate the token, ACL it down to
-/// SYSTEM + Administrators, register the service (auto-start, LocalSystem,
-/// no arguments so it comes back up in service mode), and start it.
-pub fn install() -> Result<()> {
+/// `helper-windows.exe --install --token-file <path>`: read the caller-
+/// generated token from `token_file` (see this function's call site in
+/// `main.rs` for why the token must originate from the unprivileged
+/// caller rather than being generated here), persist it to the ACL'd
+/// `WINDOWS_TOKEN_FILE`, register the service (auto-start, LocalSystem, no
+/// arguments so it comes back up in service mode), and start it.
+///
+/// Does not delete `token_file` itself -- that's the (unprivileged, so it
+/// owns the file) caller's job once this process exits.
+pub fn install(token_file: &Path) -> Result<()> {
     ensure_support_dir()?;
-    let token_path = write_new_token()?;
+    let token = std::fs::read_to_string(token_file)
+        .with_context(|| format!("reading token from {}", token_file.display()))?;
+    let token_path = write_and_lock_token(token.trim())?;
     tracing::info!("wrote helper token to {}", token_path.display());
 
     let exe_path = std::env::current_exe().context("resolving current_exe for service registration")?;
@@ -127,23 +134,16 @@ fn ensure_support_dir() -> Result<()> {
     Ok(())
 }
 
-/// Generate a fresh random token, write it to `WINDOWS_TOKEN_FILE`, and
-/// lock the file down to SYSTEM + Administrators via `icacls` (simpler and
-/// more robust across locale/OS-language than hand-rolling
-/// `SetNamedSecurityInfo`; well-known SIDs `S-1-5-18` (SYSTEM) and
-/// `S-1-5-32-544` (Administrators) sidestep localized group-name issues).
-fn write_new_token() -> Result<PathBuf> {
-    let token = generate_token();
+/// Write `token` to `WINDOWS_TOKEN_FILE` and lock the file down to SYSTEM +
+/// Administrators via `icacls` (simpler and more robust across
+/// locale/OS-language than hand-rolling `SetNamedSecurityInfo`; well-known
+/// SIDs `S-1-5-18` (SYSTEM) and `S-1-5-32-544` (Administrators) sidestep
+/// localized group-name issues).
+fn write_and_lock_token(token: &str) -> Result<PathBuf> {
     let path = PathBuf::from(endpoints::WINDOWS_TOKEN_FILE);
-    std::fs::write(&path, &token).with_context(|| format!("writing token file {}", path.display()))?;
+    std::fs::write(&path, token).with_context(|| format!("writing token file {}", path.display()))?;
     lock_down_token_file(&path)?;
     Ok(path)
-}
-
-fn generate_token() -> String {
-    let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    hex::encode(bytes)
 }
 
 fn lock_down_token_file(path: &Path) -> Result<()> {
