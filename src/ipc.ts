@@ -1,0 +1,28 @@
+// Thin wrapper around @tauri-apps/api/core's invoke() so call sites don't
+// repeat command-name strings / argument boilerplate. See docs/ipc-contract.md
+// for the authoritative command list — this file must stay in lockstep with
+// src-tauri/src/commands/*.rs.
+
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  PlatformInfo,
+  ProxyStatus,
+  ServerConfig,
+  SystemProxyStatus,
+  UserConfig,
+} from "./types";
+
+export const ipc = {
+  configGet: () => invoke<UserConfig>("config_get"),
+  configSave: (config: UserConfig) => invoke<void>("config_save", { config }),
+
+  serversAdd: (server: ServerConfig) => invoke<UserConfig>("servers_add", { server }),
+  serversDelete: (id: string) => invoke<UserConfig>("servers_delete", { id }),
+
+  proxyStart: (serverId: string) => invoke<ProxyStatus>("proxy_start", { serverId }),
+  proxyStop: () => invoke<ProxyStatus>("proxy_stop"),
+  proxyStatus: () => invoke<ProxyStatus>("proxy_status"),
+
+  systemProxyStatus: () => invoke<SystemProxyStatus>("system_proxy_status"),
+  platformInfo: () => invoke<PlatformInfo>("platform_info"),
+};

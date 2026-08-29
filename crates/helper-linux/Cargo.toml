@@ -11,8 +11,21 @@ path = "src/main.rs"
 [dependencies]
 helper-proto = { workspace = true }
 shared-types = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+
+# POSIX-only crates: kept target-gated (like helper-windows's `windows-sys`
+# block) so a Windows/macOS `cargo check --workspace` never even tries to
+# fetch/compile them — `nix` in particular doesn't build off-Linux at all.
+[target.'cfg(target_os = "linux")'.dependencies]
+# `user`: setuid/setgid/setgroups/User (uid lookups). `process`: sys::prctl
+# (PR_SET_KEEPCAPS). `signal`: kill (SIGTERM/SIGKILL). `fs`: chown.
+nix = { version = "0.31", features = ["user", "process", "signal", "fs"] }
+# Ambient-capability manipulation (CapSet::Inheritable / CapSet::Ambient) for
+# the fork+setuid+ambient-caps privilege drop in `service.rs::cmd_start`.
+caps = "0.5"

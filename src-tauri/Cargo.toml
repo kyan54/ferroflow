@@ -11,8 +11,16 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+# Desktop-only for now (no Android/iOS target), so this only needs to be an
+# rlib consumed by main.rs's bin in this same package. The Tauri template
+# default is ["staticlib", "cdylib", "rlib"] for future mobile builds, but
+# the cdylib export table (every pub symbol across the whole dependency
+# graph, incl. Tauri/wry/webview2) hits the GNU/mingw linker's "export
+# ordinal too large" limit on this toolchain. Restore cdylib/staticlib here
+# if/when mobile support is added (and switch that build to MSVC, which
+# doesn't have this ordinal limit, or reduce the exported symbol surface).
 name = "ferroflow_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

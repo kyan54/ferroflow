@@ -8,14 +8,29 @@
 //! build a TUN device — capability lives on the process, not the binary,
 //! so it survives core-binary swaps.
 //!
-//! STUB — being implemented by the helper-linux subagent. See
-//! `docs/helper-design.md` and `helper_proto::Command` for the full
-//! contract. Reference for behavior (not wire format): `helper-linux/`
-//! (Go) in the Electron repo.
+//! Implemented against `helper_proto::Command` (see that crate for the full
+//! wire contract). Reference for *behavior* (not wire format):
+//! `helper-linux/` (Go) in the Electron repo.
 //!
 //! Only meaningful on Linux; no-ops elsewhere so `cargo check --workspace`
 //! passes from Windows/macOS dev machines.
+//!
+//! Developed on a Windows machine with no Linux available. It does compile
+//! (full codegen, not just typeck — `cargo check`/`cargo build
+//! --target x86_64-unknown-linux-gnu` both get through rustc cleanly, and
+//! `cargo clippy` is silent; only the final link step fails here, for lack
+//! of a cross-linker, which is a host tooling gap, not a code issue) and it
+//! type-checks against the real `nix`/`caps`/`tokio` APIs it calls (verified
+//! against docs.rs / upstream source during review, not from memory), but it
+//! has never *run*: no fork/setuid/capability sequence in this crate has
+//! executed against a real kernel. That happens for the first time in CI on
+//! an actual Linux runner. See the implementation report for exactly which
+//! syscall-ordering assumptions to scrutinize first.
 
+#[cfg(target_os = "linux")]
+mod install;
+#[cfg(target_os = "linux")]
+mod paths;
 #[cfg(target_os = "linux")]
 mod service;
 

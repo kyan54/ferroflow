@@ -12,3 +12,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+# Graceful stop (SIGTERM before SIGKILL) needs a raw `kill(2)` — Unix only,
+# see crates/core-manager/src/process.rs::ProcessHandle::stop.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -15,6 +15,11 @@ dist-ssr
 # Rust workspace (cargo puts target/ at the workspace root, not src-tauri/)
 /target/
 
+# Local dev convenience: downloaded sing-box binary for manual testing
+# (core-manager resolves it via FERROFLOW_SINGBOX_PATH or this path; never
+# bundled/committed — see crates/core-manager/src/lib.rs::locate_binary).
+/.dev-bin/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

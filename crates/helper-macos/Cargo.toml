@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "ferroflow-helper-macos"
 path = "src/main.rs"
@@ -11,8 +14,32 @@ path = "src/main.rs"
 [dependencies]
 helper-proto = { workspace = true }
 shared-types = { workspace = true }
-tokio = { workspace = true }
+# "fs" (tokio::fs, for the token file + InstallCore) and "signal"
+# (tokio::signal::unix, for the SIGTERM/SIGINT reaper in service::run) on
+# top of the workspace defaults, which already cover "process"/"time".
+tokio = { workspace = true, features = ["fs", "signal"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+# sha2 verifies InstallCore's payload before it's ever written to a
+# root-owned path. Pure Rust, no platform-specific bindings, so (unlike
+# `nix` below) it's safe as a plain, non-target-gated dependency — it just
+# goes unused on non-macOS builds via this crate's own
+# `#[cfg(target_os = "macos")]` gates.
+sha2 = "0.10"
+
+# `nix` wraps kill(2)/Pid for the start/stop/cleanup/free-port process
+# control in `service.rs`. Verified against docs.rs for nix 0.31: `kill()`
+# needs the "signal" feature, `Pid` needs "process". Unlike sha2, `nix` is
+# Unix-only and does not compile at all on Windows (confirmed via its own
+# docs.rs page: "Available on Unix only", no Windows stub) — a
+# `#[cfg(target_os = "macos")]` gate *inside this crate's code* does not
+# stop Cargo from trying to compile a plain `[dependencies]` entry when
+# resolving the workspace on Windows, so this has to be a target-specific
+# dependency instead, resolved only when actually building for macOS. This
+# is the one entry in this file that's load-bearing for keeping
+# `cargo check --workspace` green on the Windows dev machine this crate was
+# written on — do not move it back into `[dependencies]`.
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "0.31", features = ["signal", "process"] }
