@@ -1,6 +1,7 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use core_manager::logs::LogBuffer;
 use core_manager::CoreManager;
 use net::SystemProxyManager;
 use shared_types::UserConfig;
@@ -17,15 +18,25 @@ pub struct AppState {
     /// `core-manager` needs it to build a `HelperClient` for TUN-mode
     /// start/stop/status but has no Tauri/app-data knowledge of its own.
     pub helper_token: Mutex<Option<String>>,
+    /// The in-memory app+core log ring buffer backing `logs_get`/
+    /// `logs_clear` (`commands::logs`). Same `Arc` `run()` handed to both
+    /// `log_layer::LogCaptureLayer` (app-side `tracing` events) and
+    /// `core_manager.set_log_buffer` (sing-box stdout/stderr) -- kept here
+    /// too so the read/clear commands don't need to reach through
+    /// `core_manager` for something that isn't core-manager-specific state.
+    pub log_buffer: Arc<LogBuffer>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(log_buffer: Arc<LogBuffer>) -> Self {
+        let core_manager = CoreManager::new();
+        core_manager.set_log_buffer(log_buffer.clone());
         Self {
             config: Mutex::new(UserConfig::default()),
-            core_manager: CoreManager::new(),
+            core_manager,
             system_proxy: SystemProxyManager::new(),
             helper_token: Mutex::new(None),
+            log_buffer,
         }
     }
 }

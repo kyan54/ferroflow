@@ -13,8 +13,9 @@
 //! process-name matching, plus GeoIP/GeoSite `.srs` rule-set references via
 //! `RuleMatchType::RuleSet` -- see `build_rule_set_entries`/
 //! `build_route_rules` below -- no compound conditions), and a route whose
-//! `final` sends anything no rule matched through the proxy outbound. No DNS
-//! config, no TUN inbound configured here (see `tun.rs`).
+//! `final` sends anything no rule matched to `UserConfig.default_outbound`
+//! (the proxy outbound by default, unchanged from before that field
+//! existed). No DNS config, no TUN inbound configured here (see `tun.rs`).
 
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
@@ -345,8 +346,16 @@ pub fn build_config(
     rules: &[RoutingRule],
     resource_paths: &HashMap<String, PathBuf>,
     clash_api_port: u16,
+    default_outbound: RuleOutbound,
 ) -> Value {
-    build_config_with_inbound(server, build_inbound(inbound_port), rules, resource_paths, clash_api_port)
+    build_config_with_inbound(
+        server,
+        build_inbound(inbound_port),
+        rules,
+        resource_paths,
+        clash_api_port,
+        default_outbound,
+    )
 }
 
 /// Assembles the full sing-box config for a single-server TUN-mode run: one
@@ -364,6 +373,7 @@ pub fn build_tun_config(
     rules: &[RoutingRule],
     resource_paths: &HashMap<String, PathBuf>,
     clash_api_port: u16,
+    default_outbound: RuleOutbound,
 ) -> Value {
     build_config_with_inbound(
         server,
@@ -371,6 +381,7 @@ pub fn build_tun_config(
         rules,
         resource_paths,
         clash_api_port,
+        default_outbound,
     )
 }
 
@@ -390,12 +401,24 @@ pub fn build_tun_config(
 /// WireGuard servers rather than emitted as `[]`, matching this module's
 /// existing convention of not emitting empty/unreferenced sections (see the
 /// `block` outbound above).
+///
+/// `default_outbound` is `UserConfig.default_outbound` -- the tag
+/// `route.final` resolves to (`outbound_tag`), i.e. what happens to traffic
+/// no enabled `rules` entry matches. This used to be hardcoded to
+/// `PROXY_OUTBOUND_TAG`; it's now caller-controlled so a region preset (see
+/// the frontend's `RegionPreset`) can express "proxy only these rule-sets,
+/// everything else direct/blocked" — not expressible via `route.rules`
+/// alone, since sing-box has no literal "match everything" rule condition.
+/// A `default_outbound` of `Block` also counts toward `needs_block` below,
+/// same as a `Block`-outbound rule — `route.final` pointing at a `block` tag
+/// that was never emitted would be a config sing-box rejects.
 fn build_config_with_inbound(
     server: &ServerConfig,
     inbound: Value,
     rules: &[RoutingRule],
     resource_paths: &HashMap<String, PathBuf>,
     clash_api_port: u16,
+    default_outbound: RuleOutbound,
 ) -> Value {
     let proxy = build_outbound(server);
     let is_wireguard = matches!(server.protocol, Protocol::Wireguard);
@@ -415,7 +438,8 @@ fn build_config_with_inbound(
         "tag": DIRECT_OUTBOUND_TAG,
     }));
 
-    let needs_block = rules.iter().any(|r| r.enabled && !r.values.is_empty() && r.outbound == RuleOutbound::Block);
+    let needs_block = default_outbound == RuleOutbound::Block
+        || rules.iter().any(|r| r.enabled && !r.values.is_empty() && r.outbound == RuleOutbound::Block);
     if needs_block {
         outbounds.push(json!({
             "type": "block",
@@ -426,7 +450,7 @@ fn build_config_with_inbound(
     let rule_set_entries = build_rule_set_entries(rules, resource_paths);
     let mut route = json!({
         "rules": build_route_rules(rules, resource_paths),
-        "final": PROXY_OUTBOUND_TAG,
+        "final": outbound_tag(default_outbound),
     });
     // Emitted before `rules` is assembled above only conceptually (JSON
     // object key order carries no meaning to sing-box) -- inserted here,
@@ -621,7 +645,7 @@ mod tests {
             Some("/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=".into());
         server.wireguard_local_address = Some("10.0.0.2/32".into());
 
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
 
         assert!(cfg["outbounds"]
             .as_array()
@@ -641,7 +665,7 @@ mod tests {
     #[test]
     fn non_wireguard_server_has_no_endpoints_key() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
         assert!(cfg.get("endpoints").is_none());
     }
 
@@ -697,7 +721,7 @@ mod tests {
     #[test]
     fn full_config_has_mixed_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["inbounds"][0]["type"], "mixed");
         assert_eq!(cfg["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(cfg["inbounds"][0]["listen_port"], 12345);
@@ -708,9 +732,41 @@ mod tests {
     }
 
     #[test]
+    fn default_outbound_direct_sets_final_to_direct_with_no_block_outbound() {
+        // The "streaming via proxy, rest direct" region-preset shape: an
+        // enabled proxy-outbound rule plus a non-proxy `default_outbound` --
+        // confirms `route.final` follows `default_outbound` rather than
+        // staying hardcoded to the proxy tag, and that a `Direct`
+        // `default_outbound` alone doesn't spuriously add a `block` outbound.
+        let server = base_server(Protocol::Trojan);
+        let r = rule(RuleMatchType::DomainSuffix, &[".netflix.com"], RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Direct);
+        assert_eq!(cfg["route"]["final"], DIRECT_OUTBOUND_TAG);
+        assert!(cfg["outbounds"].as_array().unwrap().iter().all(|o| o["type"] != "block"));
+    }
+
+    #[test]
+    fn default_outbound_block_sets_final_to_block_and_emits_block_outbound() {
+        // No enabled rule references `block` here -- only `default_outbound`
+        // does. Without the `needs_block` fix, `route.final` would point at
+        // a `block` tag that was never added to `outbounds`, a shape
+        // sing-box's real schema validator rejects (see the `real_singbox_*`
+        // tests below, which exercise this exact scenario against the real
+        // binary).
+        let server = base_server(Protocol::Trojan);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Block);
+        assert_eq!(cfg["route"]["final"], BLOCK_OUTBOUND_TAG);
+        assert!(cfg["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["type"] == "block" && o["tag"] == BLOCK_OUTBOUND_TAG));
+    }
+
+    #[test]
     fn full_tun_config_has_tun_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_tun_config(&server, &[], &HashMap::new(), 9999);
+        let cfg = build_tun_config(&server, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["inbounds"][0]["type"], "tun");
         assert_eq!(cfg["inbounds"][0]["interface_name"], DEFAULT_TUN_INTERFACE_NAME);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
@@ -790,7 +846,7 @@ mod tests {
     fn block_outbound_absent_when_no_block_rules() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert!(cfg["outbounds"]
             .as_array()
@@ -803,7 +859,7 @@ mod tests {
     fn block_outbound_present_when_enabled_block_rule_exists() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
         let outbounds = cfg["outbounds"].as_array().unwrap();
         assert_eq!(outbounds.len(), 3);
         assert!(outbounds.iter().any(|o| o["type"] == "block" && o["tag"] == BLOCK_OUTBOUND_TAG));
@@ -814,7 +870,7 @@ mod tests {
         let server = base_server(Protocol::Trojan);
         let mut r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
         r.enabled = false;
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
     }
 
@@ -822,7 +878,7 @@ mod tests {
     fn route_rules_appear_in_generated_config() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["route"]["rules"].as_array().unwrap().len(), 1);
         assert_eq!(cfg["route"]["rules"][0]["domain_suffix"], json!([".cn"]));
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
@@ -835,7 +891,7 @@ mod tests {
         resource_paths.insert("netflix".to_string(), PathBuf::from("/data/rule-resources/geosite-netflix.srs"));
 
         let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().expect("rule_set array present");
         assert_eq!(rule_set_entries.len(), 1);
@@ -856,7 +912,7 @@ mod tests {
         let server = base_server(Protocol::Trojan);
         // Empty map -- "netflix" was never downloaded (or was deleted).
         let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
 
         assert!(cfg["route"].get("rule_set").is_none(), "no rule_set entries should be emitted for an unknown id");
         assert!(cfg["route"]["rules"].as_array().unwrap().is_empty(), "the whole rule should be dropped, not just the unknown id");
@@ -870,7 +926,7 @@ mod tests {
         // "youtube" deliberately absent from resource_paths.
 
         let r = rule(RuleMatchType::RuleSet, &["netflix", "youtube"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(rule_set_entries.len(), 1, "only the resolvable id should get a rule_set entry");
@@ -888,7 +944,7 @@ mod tests {
 
         let rule_set_rule = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Direct);
         let domain_rule = rule(RuleMatchType::DomainSuffix, &[".example.com"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[rule_set_rule, domain_rule], &resource_paths, 9999);
+        let cfg = build_config(&server, 12345, &[rule_set_rule, domain_rule], &resource_paths, 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(rule_set_entries.len(), 1);
@@ -910,7 +966,7 @@ mod tests {
 
         let r1 = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Direct);
         let r2 = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Block);
-        let cfg = build_config(&server, 12345, &[r1, r2], &resource_paths, 9999);
+        let cfg = build_config(&server, 12345, &[r1, r2], &resource_paths, 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(rule_set_entries.len(), 1, "the same resource id referenced twice should only be emitted once");
@@ -959,7 +1015,7 @@ mod tests {
         ];
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &rules, &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &rules, &HashMap::new(), 9999, RuleOutbound::Proxy);
 
         // Sanity-check the block outbound really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -991,6 +1047,58 @@ mod tests {
         );
     }
 
+    /// Real validation of a non-`Proxy` `default_outbound` -- the shape a
+    /// region preset produces (e.g. "streaming via proxy, rest direct",
+    /// "block ads, China direct, rest proxy"). Confirms sing-box actually
+    /// accepts `route.final` pointed at `direct`/`block` rather than the
+    /// proxy tag, and (for the `Block` case) that `needs_block` correctly
+    /// promoted a `block` outbound into existence even though no *rule*
+    /// referenced it -- only `default_outbound` does. Same convention as
+    /// the other `real_singbox_*` tests in this file: not run by default
+    /// (`#[ignore]`), needs a real binary at
+    /// `<workspace root>/.dev-bin/sing-box[.exe]`. Run manually with:
+    /// `cargo test -p core-manager --all-targets -- --ignored real_singbox`
+    #[test]
+    #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/"]
+    fn real_singbox_check_accepts_non_proxy_default_outbound() {
+        use std::process::Command;
+
+        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary =
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.dev-bin")).join(binary_name);
+        assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
+
+        fn check(cfg: &Value, binary: &PathBuf, label: &str) {
+            let mut path = std::env::temp_dir();
+            path.push(format!("ferroflow-config-default-outbound-{label}-check-{}.json", std::process::id()));
+            std::fs::write(&path, serde_json::to_vec_pretty(cfg).unwrap()).unwrap();
+
+            let output = Command::new(binary).arg("check").arg("-c").arg(&path).output().expect(
+                "failed to run sing-box check",
+            );
+            let _ = std::fs::remove_file(&path);
+
+            assert!(
+                output.status.success(),
+                "sing-box check rejected the '{label}' default_outbound config.\nstdout: {}\nstderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let server = base_server(Protocol::Trojan);
+
+        let r = rule(RuleMatchType::DomainSuffix, &[".netflix.com"], RuleOutbound::Proxy);
+        let direct_cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Direct);
+        assert_eq!(direct_cfg["route"]["final"], DIRECT_OUTBOUND_TAG);
+        check(&direct_cfg, &binary, "direct");
+
+        let block_cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Block);
+        assert_eq!(block_cfg["route"]["final"], BLOCK_OUTBOUND_TAG);
+        assert!(block_cfg["outbounds"].as_array().unwrap().iter().any(|o| o["type"] == "block"));
+        check(&block_cfg, &binary, "block");
+    }
+
     /// Confirms sing-box's real schema validator accepts the
     /// `experimental.clash_api` block this module now emits on every config
     /// (both `build_config` and `build_tun_config` — see their doc
@@ -1010,7 +1118,7 @@ mod tests {
         assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 19999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 19999, RuleOutbound::Proxy);
 
         // Sanity-check the clash_api block really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -1082,7 +1190,7 @@ mod tests {
             Some("MihvP+gV2j8pb18XF/iI8DrXLj+AfScAscLfmlM2oLU=".into());
         server.wireguard_local_address = Some("10.0.0.2/32".into());
 
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
 
         // Sanity-check the endpoint shape before handing this to sing-box,
         // so a failed `check` clearly means "sing-box rejected the shape"
@@ -1158,7 +1266,7 @@ mod tests {
 
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999, RuleOutbound::Proxy);
 
         // Sanity-check the shape before handing this to sing-box, so a
         // failed `check` clearly means "sing-box rejected the shape" rather
@@ -1184,6 +1292,122 @@ mod tests {
         assert!(
             output.status.success(),
             "sing-box check rejected the generated config with a real rule_set reference.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// End-to-end validation of the exact shape the frontend's `AppRoutingView`
+    /// + region-preset feature produces together: one `app-routing:<id>`-style
+    /// rule (a single app, e.g. Netflix, routed to the proxy) alongside one
+    /// `preset:<id>:<n>`-style rule (a region preset bundling GeoSite + GeoIP
+    /// resources into one rule, e.g. "China direct"), plus a non-default
+    /// `default_outbound`. The `RoutingRule.id` naming convention itself is
+    /// frontend-only bookkeeping invisible to `core_manager` -- this test's
+    /// real value is downloading three real `.srs` files (one GeoSite for the
+    /// app-routing rule, one GeoSite + one GeoIP for the region-preset rule,
+    /// confirming the GeoSite/GeoIP id-collision fix from
+    /// `commands::rule_resources::resource_id` produces two independently
+    /// resolvable resources for the same bare name `"cn"`) and asking a real
+    /// `sing-box check` to accept the combined config. Not run by default
+    /// (`#[ignore]`), needs a real binary at
+    /// `<workspace root>/.dev-bin/sing-box[.exe]` *and* real network access.
+    /// Run manually with:
+    /// `cargo test -p core-manager --all-targets -- --ignored real_singbox`
+    #[tokio::test]
+    #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/ and real network access"]
+    async fn real_singbox_check_accepts_combined_app_routing_and_region_preset_rules() {
+        use std::process::Command;
+
+        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary =
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.dev-bin")).join(binary_name);
+        assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
+
+        async fn fetch(category: rule_resources::ResourceCategory, name: &str, label: &str) -> PathBuf {
+            let url = rule_resources::resource_url(category, name, None);
+            let mut path = std::env::temp_dir();
+            path.push(format!("ferroflow-core-manager-combined-{label}-{}.srs", std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            rule_resources::download(&url, &path)
+                .await
+                .unwrap_or_else(|e| panic!("real download of {label} should succeed: {e}"));
+            assert!(path.is_file(), "downloaded {label} .srs file should exist at {}", path.display());
+            path
+        }
+
+        // "app-routing:netflix" -- a single app routed to the proxy.
+        let netflix_path = fetch(rule_resources::ResourceCategory::Geosite, "netflix", "geosite-netflix").await;
+        // "preset:cn-direct:0" -- China (by domain OR by IP) routed direct,
+        // exercising the exact id-collision scenario `RuleResourceInfo::id`'s
+        // doc comment describes (bare name "cn" for both categories).
+        let cn_geosite_path = fetch(rule_resources::ResourceCategory::Geosite, "cn", "geosite-cn").await;
+        let cn_geoip_path = fetch(rule_resources::ResourceCategory::GeoIp, "cn", "geoip-cn").await;
+
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("geosite-netflix".to_string(), netflix_path.clone());
+        resource_paths.insert("geosite-cn".to_string(), cn_geosite_path.clone());
+        resource_paths.insert("geoip-cn".to_string(), cn_geoip_path.clone());
+
+        let app_routing_rule = RoutingRule {
+            id: "app-routing:netflix".into(),
+            name: "App routing: Netflix".into(),
+            enabled: true,
+            match_type: RuleMatchType::RuleSet,
+            values: vec!["geosite-netflix".to_string()],
+            outbound: RuleOutbound::Proxy,
+        };
+        let preset_rule = RoutingRule {
+            id: "preset:cn-direct:0".into(),
+            name: "China direct (preset)".into(),
+            enabled: true,
+            match_type: RuleMatchType::RuleSet,
+            values: vec!["geosite-cn".to_string(), "geoip-cn".to_string()],
+            outbound: RuleOutbound::Direct,
+        };
+
+        let server = base_server(Protocol::Trojan);
+        let cfg = build_config(
+            &server,
+            12345,
+            &[app_routing_rule, preset_rule],
+            &resource_paths,
+            9999,
+            RuleOutbound::Proxy,
+        );
+
+        // Sanity-check both rule-set entries and both route rules made it in
+        // before handing this to sing-box.
+        let rule_set_tags: Vec<&str> =
+            cfg["route"]["rule_set"].as_array().unwrap().iter().map(|e| e["tag"].as_str().unwrap()).collect();
+        assert!(rule_set_tags.contains(&"ruleset-geosite-netflix"));
+        assert!(rule_set_tags.contains(&"ruleset-geosite-cn"));
+        assert!(rule_set_tags.contains(&"ruleset-geoip-cn"));
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 2);
+        assert_eq!(route_rules[0]["outbound"], PROXY_OUTBOUND_TAG);
+        assert_eq!(route_rules[1]["rule_set"], json!(["ruleset-geosite-cn", "ruleset-geoip-cn"]));
+        assert_eq!(route_rules[1]["outbound"], DIRECT_OUTBOUND_TAG);
+
+        let mut config_path = std::env::temp_dir();
+        config_path.push(format!("ferroflow-config-combined-app-routing-preset-check-{}.json", std::process::id()));
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+
+        let output = Command::new(&binary)
+            .arg("check")
+            .arg("-c")
+            .arg(&config_path)
+            .output()
+            .expect("failed to run sing-box check");
+
+        let _ = std::fs::remove_file(&config_path);
+        let _ = std::fs::remove_file(&netflix_path);
+        let _ = std::fs::remove_file(&cn_geosite_path);
+        let _ = std::fs::remove_file(&cn_geoip_path);
+
+        assert!(
+            output.status.success(),
+            "sing-box check rejected the combined app-routing + region-preset config.\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

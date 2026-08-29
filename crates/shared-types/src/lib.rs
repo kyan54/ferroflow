@@ -206,10 +206,18 @@ pub enum RuleResourceCategory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleResourceInfo {
-    /// Stable id a `RoutingRule.values` entry references -- same as `name`
-    /// today (bare category name, e.g. `"netflix"`), kept as its own field
-    /// rather than reusing `name` directly in case a future custom resource
-    /// needs an id distinct from its display name.
+    /// Stable id a `RoutingRule.values` entry references -- `"<category
+    /// file-prefix>-<name>"` (e.g. `"geosite-netflix"`, `"geoip-cn"`), see
+    /// `commands::rule_resources::resource_id` on the `src-tauri` side).
+    /// **Not** bare `name` -- the builtin catalog deliberately has entries
+    /// that share a `name` across the two `category` values (e.g. `"cn"` is
+    /// both a GeoSite and a GeoIP entry), so an id derived from `name` alone
+    /// would collide between them: downloading both would upsert the same
+    /// `UserConfig.rule_resources` slot twice, silently leaving only one of
+    /// the two categories actually tracked/referenceable (confirmed against
+    /// real catalog data -- `builtin_catalog()`'s `"cn"`/`GeoIp` and
+    /// `"cn"`/`Geosite` entries -- while building the region-preset feature,
+    /// which needs both active at once for e.g. "China direct").
     pub id: String,
     /// Bare category name, e.g. `"netflix"` (no `geosite-`/`geoip-` prefix
     /// or `.srs` suffix) -- see `rule_resources::CatalogEntry::name`.
@@ -305,6 +313,26 @@ pub struct UserConfig {
     /// is `true`. Defaults to once a day.
     #[serde(default = "default_rule_resource_auto_update_interval_hours")]
     pub rule_resource_auto_update_interval_hours: u32,
+
+    /// Fallback outbound for traffic that matches no enabled `rules` entry
+    /// -- sing-box's `route.final`. Before this field existed,
+    /// `core_manager::config::build_config_with_inbound` hardcoded
+    /// `route.final` to the proxy outbound; that's still this field's
+    /// default (`RuleOutbound::Proxy`), so existing behavior is unchanged
+    /// for every config that predates this field. Driven by the
+    /// region-preset feature (see `RegionPreset` on the frontend side),
+    /// which needs a way to express "proxy only these rule-sets, everything
+    /// else direct" -- not expressible with `route.rules` alone, since
+    /// sing-box has no literal "match everything" rule condition.
+    /// `#[serde(default = ...)]` so a `config.json` persisted before this
+    /// field existed still loads cleanly with the same implicit behavior it
+    /// always had, rather than failing to parse.
+    #[serde(default = "default_outbound_proxy")]
+    pub default_outbound: RuleOutbound,
+}
+
+fn default_outbound_proxy() -> RuleOutbound {
+    RuleOutbound::Proxy
 }
 
 impl Default for UserConfig {
@@ -325,6 +353,7 @@ impl Default for UserConfig {
             github_accel_prefix: None,
             rule_resource_auto_update: false,
             rule_resource_auto_update_interval_hours: default_rule_resource_auto_update_interval_hours(),
+            default_outbound: default_outbound_proxy(),
         }
     }
 }
@@ -444,6 +473,42 @@ pub struct HistoryEntry {
     pub end: String,
     pub chains: Vec<String>,
     pub rule: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+/// One captured log line, from either this app's own `tracing` events
+/// (`source: "app"`, fed by `src-tauri`'s custom `tracing_subscriber::Layer`)
+/// or sing-box's child-process stdout/stderr (`source: "core"`, fed by
+/// `core_manager::CoreManager::start`'s spawned line-reader tasks) -- both
+/// feed into the single in-memory ring buffer `core_manager::logs::LogBuffer`
+/// owns. Exposed via the `logs_get`/`logs_clear` Tauri commands; see
+/// `docs/ipc-contract.md`'s "Logs" section.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogEntry {
+    /// RFC3339 timestamp string (`core_manager::history::now_rfc3339`), the
+    /// moment this entry was captured -- not necessarily the moment the
+    /// underlying event happened (sing-box's own stdout/stderr lines carry
+    /// no timestamp this app parses out).
+    pub timestamp: String,
+    pub level: LogLevel,
+    /// `"app"` for this app's own `tracing` events, `"core"` for sing-box's
+    /// child-process stdout/stderr lines.
+    pub source: String,
+    /// The `tracing` target/module path (e.g. `"core_manager"`), for
+    /// `source: "app"` entries only -- always `None` for `"core"` lines,
+    /// which have no equivalent concept.
+    pub target: Option<String>,
+    pub message: String,
 }
 
 /// Error type returned by every Tauri command (`Result<T, AppError>`).

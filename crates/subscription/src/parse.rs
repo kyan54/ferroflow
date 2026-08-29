@@ -33,7 +33,7 @@ const SCHEME_MARKERS: [&str; 4] = ["vless://", "trojan://", "ss://", "vmess://"]
 /// on fast machines) would otherwise collide.
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn generate_id() -> String {
+pub(crate) fn generate_id() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default();
     let seq = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("sub-{}-{nanos}-{seq}", std::process::id())

@@ -9,6 +9,7 @@ import type {
   ConnectionsSnapshot,
   HelperStatus,
   HistoryEntry,
+  LogEntry,
   PlatformInfo,
   ProxyStatus,
   RoutingRule,
@@ -49,7 +50,12 @@ export const ipc = {
   historyList: () => invoke<HistoryEntry[]>("history_list"),
   historyClear: () => invoke<void>("history_clear"),
 
+  logsGet: () => invoke<LogEntry[]>("logs_get"),
+  logsClear: () => invoke<void>("logs_clear"),
+
   subscriptionImport: (url: string) => invoke<UserConfig>("subscription_import", { url }),
+  subscriptionImportText: (text: string) => invoke<UserConfig>("subscription_import_text", { text }),
+  subscriptionImportFile: (path: string) => invoke<UserConfig>("subscription_import_file", { path }),
 
   warpRegister: () => invoke<UserConfig>("warp_register"),
 

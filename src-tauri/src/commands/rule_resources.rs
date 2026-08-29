@@ -38,6 +38,19 @@ pub(crate) fn category_file_prefix(category: RuleResourceCategory) -> &'static s
     }
 }
 
+/// Builds a `RuleResourceInfo::id` -- `"<category file-prefix>-<name>"` (e.g.
+/// `"geosite-netflix"`, `"geoip-cn"`) -- see that field's doc comment for why
+/// this can't just be bare `name`: the builtin catalog has entries that
+/// share a `name` across both categories (`"cn"` is both a GeoSite and a
+/// GeoIp entry), so an id derived from `name` alone would collide between
+/// them. The frontend derives this exact same id independently (see
+/// `src/lib/appRouting.ts`'s `ruleResourceId`) to look up whether a resource
+/// is already downloaded before referencing it from a `RoutingRule` --
+/// keep the two in sync if this ever changes.
+pub(crate) fn resource_id(category: RuleResourceCategory, name: &str) -> String {
+    format!("{}-{name}", category_file_prefix(category))
+}
+
 /// `<app_config_dir>/rule-resources/<category>-<name>.srs` -- see
 /// `state::rule_resources_dir`'s doc comment.
 pub(crate) fn resource_file_path(app: &AppHandle, category: RuleResourceCategory, name: &str) -> AppResult<PathBuf> {
@@ -87,7 +100,7 @@ pub async fn rule_resources_download(
         .map_err(|e| AppError::new("rule_resource_download_failed", e.to_string()))?;
 
     let info = RuleResourceInfo {
-        id: entry.name.clone(),
+        id: resource_id(category, &entry.name),
         name: entry.name,
         category,
         is_builtin: true,
@@ -121,7 +134,7 @@ pub async fn rule_resources_download_custom(
         .map_err(|e| AppError::new("rule_resource_download_failed", e.to_string()))?;
 
     let info = RuleResourceInfo {
-        id: name.clone(),
+        id: resource_id(category, &name),
         name,
         category,
         is_builtin: false,

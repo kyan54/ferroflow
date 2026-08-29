@@ -43,12 +43,20 @@ pub async fn proxy_start(
     let Some(server) = server else {
         return Err(AppError::new("server_not_found", format!("no server with id {server_id}")));
     };
-    let (mode_type, rules, connection_history_enabled) = {
+    let (mode_type, rules, connection_history_enabled, default_outbound) = {
         let config = state.config.lock().unwrap();
-        (config.proxy_mode_type, config.rules.clone(), config.connection_history_enabled)
+        (
+            config.proxy_mode_type,
+            config.rules.clone(),
+            config.connection_history_enabled,
+            config.default_outbound,
+        )
     };
     let resource_paths = build_resource_paths(&app, &state);
-    state.core_manager.start(&server, mode_type, &rules, &resource_paths, connection_history_enabled).await
+    state
+        .core_manager
+        .start(&server, mode_type, &rules, &resource_paths, connection_history_enabled, default_outbound)
+        .await
 }
 
 #[tauri::command]

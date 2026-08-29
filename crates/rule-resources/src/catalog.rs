@@ -89,6 +89,11 @@ pub fn builtin_catalog() -> Vec<CatalogEntry> {
         entry("microsoft", Geosite, "Microsoft"),
         entry("apple", Geosite, "Apple"),
         entry("amazon", Geosite, "Amazon"),
+        entry("discord", Geosite, "Discord"),
+        entry("steam", Geosite, "Steam"),
+        entry("playstation", Geosite, "PlayStation Network"),
+        entry("anthropic", Geosite, "Anthropic / Claude"),
+        entry("docker", Geosite, "Docker Hub"),
     ]
 }
 

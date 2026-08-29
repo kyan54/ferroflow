@@ -13,19 +13,20 @@
 pub mod clash_api;
 pub mod config;
 pub mod history;
+pub mod logs;
 pub mod process;
 pub mod tun;
 
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use helper_client::HelperClient;
 use shared_types::{
     AppError, AppResult, ConnectionsSnapshot, ProxyErrorCode, ProxyModeType, ProxyStatus,
-    RoutingRule, ServerConfig,
+    RoutingRule, RuleOutbound, ServerConfig,
 };
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -74,6 +75,13 @@ struct RunningCore {
     /// that method's doc comment for why a hard `.abort()` rather than a
     /// cooperative cancellation channel is fine here.
     history_task: Option<JoinHandle<()>>,
+    /// Background `logs::spawn_line_reader` tasks forwarding this run's
+    /// sing-box stdout/stderr into `log_buffer`, when `Backend::Local` and a
+    /// buffer has been configured (`set_log_buffer`) — empty for
+    /// `Backend::Helper` (no local child to read from here; the helper owns
+    /// it) or if no buffer was ever set. Aborted in `stop_running` alongside
+    /// `history_task`, same reasoning.
+    log_tasks: Vec<JoinHandle<()>>,
 }
 
 pub struct CoreManager {
@@ -98,6 +106,15 @@ pub struct CoreManager {
     /// a path set after construction applies to every run started after
     /// that point.
     history_dir_or_path: StdMutex<Option<PathBuf>>,
+    /// The shared `logs::LogBuffer` sing-box stdout/stderr lines get pushed
+    /// into, once configured — `None` until `set_log_buffer` is called.
+    /// Unlike `history_dir_or_path`, this isn't app-data-path-dependent, but
+    /// it still has to be a setter rather than built inside `new()`: the
+    /// *same* `Arc<LogBuffer>` also needs to back `src-tauri`'s
+    /// `tracing_subscriber::Layer`, which is installed before `CoreManager`
+    /// is constructed at all (see `src-tauri`'s `run()`), so the one true
+    /// instance is created there first and handed in here afterward.
+    log_buffer: StdMutex<Option<Arc<logs::LogBuffer>>>,
 }
 
 impl CoreManager {
@@ -116,6 +133,7 @@ impl CoreManager {
             helper_token: StdMutex::new(None),
             system_proxy: net::SystemProxyManager::new(),
             history_dir_or_path: StdMutex::new(None),
+            log_buffer: StdMutex::new(None),
         }
     }
 
@@ -140,6 +158,15 @@ impl CoreManager {
     /// `Tun`-mode start before `set_helper_token` would fail outright.
     pub fn set_history_path(&self, path: Option<PathBuf>) {
         *self.history_dir_or_path.lock().unwrap() = path;
+    }
+
+    /// Sets the shared `logs::LogBuffer` that sing-box stdout/stderr lines
+    /// get forwarded into for subsequent `start()` calls. See the field's
+    /// doc comment for why this must be handed in from outside rather than
+    /// built inside `new()`. Called once, from `AppState::new()`, right
+    /// after the same `Arc` was used to build the app's tracing layer.
+    pub fn set_log_buffer(&self, buffer: Arc<logs::LogBuffer>) {
+        *self.log_buffer.lock().unwrap() = Some(buffer);
     }
 
     fn helper_client(&self) -> HelperClient {
@@ -213,6 +240,12 @@ impl CoreManager {
     /// proxy is already running does not retroactively start logging that
     /// run (there is no live-reconfiguration path here, matching this
     /// codebase's stated preference for not over-engineering MVP features).
+    ///
+    /// `default_outbound` is the caller's current `UserConfig.default_outbound`
+    /// -- threaded straight through to `config::build_config`/
+    /// `build_tun_config` as the tag `route.final` resolves to. See that
+    /// field's doc comment for why this exists (region presets needing a
+    /// non-proxy catch-all).
     pub async fn start(
         &self,
         server: &ServerConfig,
@@ -220,6 +253,7 @@ impl CoreManager {
         rules: &[RoutingRule],
         resource_paths: &HashMap<String, PathBuf>,
         connection_history_enabled: bool,
+        default_outbound: RuleOutbound,
     ) -> AppResult<ProxyStatus> {
         let mut guard = self.running.lock().await;
 
@@ -246,12 +280,13 @@ impl CoreManager {
                     )
                 })?;
 
-                let cfg = config::build_config(server, port, rules, resource_paths, clash_api_port);
+                let cfg =
+                    config::build_config(server, port, rules, resource_paths, clash_api_port, default_outbound);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
 
-                let handle = ProcessHandle::spawn(&self.binary_path, &config_path).map_err(|e| {
+                let mut handle = ProcessHandle::spawn(&self.binary_path, &config_path).map_err(|e| {
                     // Config file is orphaned on this path (spawn never happened
                     // to consume it) — best-effort cleanup so temp dir doesn't
                     // accumulate.
@@ -265,6 +300,13 @@ impl CoreManager {
                     )
                 })?;
 
+                // Start forwarding this run's stdout/stderr into the shared
+                // log buffer right away, before any of the fallible steps
+                // below -- a config-rejection or system-proxy failure below
+                // still logs whatever sing-box printed about it.
+                let (stdout, stderr) = handle.take_stdio();
+                let log_tasks = self.spawn_core_log_readers(stdout, stderr);
+
                 // `SystemProxy` mode promises the OS actually routes through
                 // this proxy -- if we can't make that true, fail loudly
                 // rather than leave the user thinking they're covered while
@@ -273,8 +315,10 @@ impl CoreManager {
                 // `local_port` by hand), so it skips this entirely.
                 if matches!(mode_type, ProxyModeType::SystemProxy) {
                     if let Err(e) = self.system_proxy.enable(port, port) {
-                        let mut handle = handle;
                         let _ = handle.stop().await;
+                        for task in log_tasks {
+                            task.abort();
+                        }
                         let _ = std::fs::remove_file(&config_path);
                         return Err(AppError::new(
                             "system_proxy_failed",
@@ -297,6 +341,7 @@ impl CoreManager {
                     local_port: Some(port),
                     clash_api_port,
                     history_task,
+                    log_tasks,
                 });
 
                 Ok(ProxyStatus {
@@ -326,7 +371,8 @@ impl CoreManager {
                     )
                 })?;
 
-                let cfg = config::build_tun_config(server, rules, resource_paths, clash_api_port);
+                let cfg =
+                    config::build_tun_config(server, rules, resource_paths, clash_api_port, default_outbound);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -352,6 +398,10 @@ impl CoreManager {
                     local_port: None,
                     clash_api_port,
                     history_task,
+                    // No local child here to read stdout/stderr from -- the
+                    // helper owns the actual sing-box process. Out of scope
+                    // for this pass (see `logs` module doc comment).
+                    log_tasks: Vec::new(),
                 });
 
                 Ok(ProxyStatus {
@@ -383,6 +433,29 @@ impl CoreManager {
         }
         let path = self.history_dir_or_path.lock().unwrap().clone()?;
         Some(history::HistoryRecorder::spawn(clash_api_port, path))
+    }
+
+    /// Spawns `logs::spawn_line_reader` for whichever of `stdout`/`stderr`
+    /// is `Some`, forwarding lines into the configured `log_buffer` -- an
+    /// empty `Vec` (no tasks) if `set_log_buffer` was never called, mirroring
+    /// `spawn_history_task_if_enabled`'s "no configuration, spawn nothing"
+    /// convention rather than erroring.
+    fn spawn_core_log_readers(
+        &self,
+        stdout: Option<tokio::process::ChildStdout>,
+        stderr: Option<tokio::process::ChildStderr>,
+    ) -> Vec<JoinHandle<()>> {
+        let Some(buffer) = self.log_buffer.lock().unwrap().clone() else {
+            return Vec::new();
+        };
+        let mut tasks = Vec::new();
+        if let Some(stdout) = stdout {
+            tasks.push(logs::spawn_line_reader(stdout, buffer.clone()));
+        }
+        if let Some(stderr) = stderr {
+            tasks.push(logs::spawn_line_reader(stderr, buffer));
+        }
+        tasks
     }
 
     /// Stops whichever backend is tracked, if any, and cleans up its temp
@@ -429,6 +502,16 @@ impl CoreManager {
         // racing with a stale recorder still appending to the same file.
         if let Some(handle) = running.history_task.take() {
             handle.abort();
+        }
+        // Same reasoning as `history_task` above -- these are best-effort
+        // background forwarders with no critical section, so a hard abort
+        // (rather than a cooperative shutdown signal) is fine, and also
+        // prevents a stale reader from a previous run racing a fresh
+        // `start()`'s reader over the same shared `log_buffer` (harmless
+        // either way, but pointless once the process it was reading from is
+        // gone).
+        for task in running.log_tasks.drain(..) {
+            task.abort();
         }
     }
 
@@ -674,7 +757,7 @@ mod tests {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
         let err = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false)
+            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false, RuleOutbound::Proxy)
             .await
             .unwrap_err();
         assert_eq!(err.code, "core_start_failed");
@@ -689,7 +772,7 @@ mod tests {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
         let err = manager
-            .start(&server, ProxyModeType::Manual, &[], &HashMap::new(), false)
+            .start(&server, ProxyModeType::Manual, &[], &HashMap::new(), false, RuleOutbound::Proxy)
             .await
             .unwrap_err();
         assert_eq!(err.code, "core_start_failed");
@@ -706,7 +789,7 @@ mod tests {
         let manager = CoreManager::with_binary_path("does-not-matter-for-this-path");
         let server = test_server();
         let err = manager
-            .start(&server, ProxyModeType::Tun, &[], &HashMap::new(), false)
+            .start(&server, ProxyModeType::Tun, &[], &HashMap::new(), false, RuleOutbound::Proxy)
             .await
             .unwrap_err();
         assert_eq!(err.code, "helper_unavailable");
@@ -741,7 +824,7 @@ mod tests {
         let server = test_server();
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false)
+            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false, RuleOutbound::Proxy)
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);

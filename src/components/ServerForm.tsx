@@ -3,6 +3,7 @@ import { useAppStore } from "../store";
 import { PROTOCOLS } from "../types";
 import type { Protocol, ServerConfig } from "../types";
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Toggle } from "./ui";
+import { newId } from "../lib/utils";
 
 const PROTOCOL_FIELDS: Record<Protocol, { uuid: boolean; password: boolean; encryption: boolean; flow: boolean }> = {
   vless: { uuid: true, password: false, encryption: true, flow: true },
@@ -16,13 +17,6 @@ const PROTOCOL_FIELDS: Record<Protocol, { uuid: boolean; password: boolean; encr
 // core-manager::config::build_outbound's wireguard arm) -- the shared TLS
 // fieldset below doesn't apply to it.
 const PROTOCOLS_WITH_TLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess"];
-
-function newId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `srv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 export function ServerForm({ onDone }: { onDone: () => void }) {
   const addServer = useAppStore((s) => s.addServer);

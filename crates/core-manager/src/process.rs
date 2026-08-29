@@ -12,7 +12,7 @@ use std::process::Stdio;
 #[cfg(unix)]
 use std::time::Duration;
 
-use tokio::process::{Child, Command};
+use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 
 /// How long `stop()` waits for a graceful exit after SIGTERM before
 /// escalating to SIGKILL. Unix-only: Windows has no equivalent grace period
@@ -25,8 +25,11 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// A running (or since-exited) sing-box child process. Owns the
 /// `tokio::process::Child` handle; stdout/stderr are piped so sing-box
-/// doesn't inherit/flash a console, but nothing reads them yet (log
-/// capture/forwarding is phase 2, alongside the gRPC status stream).
+/// doesn't inherit/flash a console. `CoreManager::start` reads them via
+/// `take_stdio` right after `spawn` returns and feeds each line into
+/// `core_manager::logs::LogBuffer` -- the gRPC status/connections stream
+/// (`daemon.StartedService`, sing-box 1.14+) is still a later pass, but
+/// plain stdout/stderr log capture is not.
 pub struct ProcessHandle {
     child: Child,
 }
@@ -55,6 +58,16 @@ impl ProcessHandle {
     /// OS process id, while the child hasn't been reaped.
     pub fn pid(&self) -> Option<u32> {
         self.child.id()
+    }
+
+    /// Takes ownership of the child's piped stdout/stderr handles, if not
+    /// already taken -- `Command::stdout(Stdio::piped())`/`stderr` above
+    /// guarantee both are `Some` the first time this is called (right after
+    /// `spawn`), so callers get a real reader on both ends to feed into
+    /// `core_manager::logs::spawn_line_reader`. Calling this more than once
+    /// returns `None` for whichever side was already taken.
+    pub fn take_stdio(&mut self) -> (Option<ChildStdout>, Option<ChildStderr>) {
+        (self.child.stdout.take(), self.child.stderr.take())
     }
 
     /// Non-blocking liveness check. Also reaps the exit status as a side

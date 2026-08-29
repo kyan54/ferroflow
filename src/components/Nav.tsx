@@ -1,6 +1,14 @@
 import type { SVGProps } from "react";
 
-export type View = "dashboard" | "servers" | "rules" | "ruleResources" | "connections" | "settings";
+export type View =
+  | "dashboard"
+  | "servers"
+  | "rules"
+  | "appRouting"
+  | "ruleResources"
+  | "connections"
+  | "logs"
+  | "settings";
 
 function icon(props: SVGProps<SVGSVGElement>) {
   return {
@@ -48,11 +56,31 @@ function ConnectionsIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function AppRoutingIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...icon(props)}>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
 function RuleResourcesIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...icon(props)}>
       <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z" />
       <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+function LogsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...icon(props)}>
+      <path d="M6 3h9l3 3v15H6z" />
+      <path d="M9 8h6M9 12h6M9 16h4" />
     </svg>
   );
 }
@@ -70,8 +98,10 @@ const TABS: { id: View; label: string; icon: typeof DashboardIcon }[] = [
   { id: "dashboard", label: "Dashboard", icon: DashboardIcon },
   { id: "servers", label: "Servers", icon: ServersIcon },
   { id: "rules", label: "Rules", icon: RulesIcon },
+  { id: "appRouting", label: "App routing", icon: AppRoutingIcon },
   { id: "ruleResources", label: "Rule resources", icon: RuleResourcesIcon },
   { id: "connections", label: "Connections", icon: ConnectionsIcon },
+  { id: "logs", label: "Logs", icon: LogsIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 

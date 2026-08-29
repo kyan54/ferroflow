@@ -148,6 +148,14 @@ export interface UserConfig {
   ruleResourceAutoUpdate: boolean;
   /** How often the auto-update task wakes, when `ruleResourceAutoUpdate` is on. */
   ruleResourceAutoUpdateIntervalHours: number;
+  /**
+   * Fallback outbound for traffic that matches no enabled `rules` entry --
+   * sing-box's `route.final`. Defaults to "proxy" (this app's behavior
+   * before this field existed). Used by region presets (see
+   * `src/lib/appRouting.ts`) to express "proxy only these rule-sets,
+   * everything else direct/blocked".
+   */
+  defaultOutbound: RuleOutbound;
 }
 
 export type HelperPlatform = "windows" | "macos" | "linux";
@@ -214,6 +222,23 @@ export interface HistoryEntry {
   end: string;
   chains: string[];
   rule: string;
+}
+
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error";
+
+/** One captured log line -- see `crates/shared-types::LogEntry`. Backed by
+ * an in-memory ring buffer fed by both this app's own `tracing` events
+ * (`source: "app"`) and sing-box's child-process stdout/stderr
+ * (`source: "core"`). */
+export interface LogEntry {
+  /** RFC3339 timestamp string, the moment this entry was captured. */
+  timestamp: string;
+  level: LogLevel;
+  /** `"app"` or `"core"`. */
+  source: string;
+  /** The `tracing` target/module path, `"app"` entries only -- `null` for `"core"` lines. */
+  target?: string | null;
+  message: string;
 }
 
 /** Shape of every rejected Tauri command promise (`AppError` on the Rust side). */

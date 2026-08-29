@@ -500,7 +500,7 @@ mod tests {
         };
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], &std::collections::HashMap::new(), true)
+            .start(&server, ProxyModeType::SystemProxy, &[], &std::collections::HashMap::new(), true, shared_types::RuleOutbound::Proxy)
             .await
             .expect("start should succeed against a real sing-box binary");
         let local_port = started.local_port.expect("SystemProxy run has a local mixed-inbound port");

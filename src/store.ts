@@ -2,14 +2,25 @@ import { create } from "zustand";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { ipc } from "./ipc";
 import { appErrorMessage } from "./types";
+import { newId } from "./lib/utils";
+import {
+  appRoutingRuleId,
+  buildPresetRules,
+  presetResourceRefs,
+  ruleResourceId,
+  PRESET_RULE_PREFIX,
+  REGION_PRESETS,
+} from "./lib/appRouting";
 import type {
   CatalogEntry,
   ConnectionsSnapshot,
   HelperStatus,
   HistoryEntry,
+  LogEntry,
   PlatformInfo,
   ProxyStatus,
   RoutingRule,
+  RuleOutbound,
   RuleResourceCategory,
   ServerConfig,
   SystemProxyStatus,
@@ -38,6 +49,7 @@ interface AppStore {
   helperStatus: HelperStatus | null;
   connectionsSnapshot: ConnectionsSnapshot | null;
   historyEntries: HistoryEntry[];
+  logEntries: LogEntry[];
   ruleResourceCatalog: CatalogEntry[];
 
   configLoading: boolean;
@@ -46,6 +58,8 @@ interface AppStore {
   subscriptionBusy: boolean;
   warpBusy: boolean;
   ruleResourceBusy: boolean;
+  appRoutingBusy: boolean;
+  regionPresetBusy: boolean;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], message: string) => void;
@@ -62,8 +76,11 @@ interface AppStore {
   saveConfig: (config: UserConfig) => Promise<void>;
   addServer: (server: ServerConfig) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
+  duplicateServer: (id: string) => Promise<void>;
   selectServer: (id: string | null) => Promise<void>;
   importSubscription: (url: string) => Promise<void>;
+  importSubscriptionText: (text: string) => Promise<void>;
+  importSubscriptionFile: (path: string) => Promise<void>;
   registerWarp: () => Promise<void>;
 
   addRule: (rule: RoutingRule) => Promise<void>;
@@ -71,6 +88,16 @@ interface AppStore {
   deleteRule: (id: string) => Promise<void>;
   moveRuleUp: (id: string) => Promise<void>;
   moveRuleDown: (id: string) => Promise<void>;
+
+  /** Sets (or, with `outbound: null`, removes) the `RoutingRule` behind one
+   * `AppRoutingView` app toggle -- downloads the backing GeoSite resource
+   * first if it isn't already tracked in `config.ruleResources`. */
+  setAppRoute: (appId: string, appLabel: string, geositeName: string, outbound: RuleOutbound | null) => Promise<void>;
+  /** Applies a region preset (see `src/lib/appRouting.ts`): downloads any
+   * resource its rules reference that isn't already tracked, replaces its
+   * own previously-applied rules (or the whole `rules` list, for the
+   * "clears all" preset), sets `defaultOutbound`, and saves. */
+  applyRegionPreset: (presetId: string) => Promise<void>;
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
@@ -82,6 +109,9 @@ interface AppStore {
 
   refreshHistory: () => Promise<void>;
   clearHistory: () => Promise<void>;
+
+  refreshLogs: () => Promise<void>;
+  clearLogs: () => Promise<void>;
 
   exportBackup: () => Promise<void>;
   importBackup: () => Promise<void>;
@@ -102,6 +132,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   helperStatus: null,
   connectionsSnapshot: null,
   historyEntries: [],
+  logEntries: [],
   ruleResourceCatalog: [],
 
   configLoading: false,
@@ -110,6 +141,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   subscriptionBusy: false,
   warpBusy: false,
   ruleResourceBusy: false,
+  appRoutingBusy: false,
+  regionPresetBusy: false,
 
   toasts: [],
   pushToast: (kind, message) => {
@@ -244,6 +277,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  duplicateServer: async (id) => {
+    const original = get().config?.servers.find((s) => s.id === id);
+    if (!original) return;
+    const clone: ServerConfig = { ...original, id: newId(), name: `${original.name} (copy)` };
+    try {
+      const config = await ipc.serversAdd(clone);
+      set({ config });
+      get().pushToast("success", `Duplicated "${original.name}"`);
+    } catch (err) {
+      get().pushToast("error", `Failed to duplicate server: ${appErrorMessage(err)}`);
+    }
+  },
+
   selectServer: async (id) => {
     const current = get().config;
     if (!current) return;
@@ -266,6 +312,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
     } catch (err) {
       get().pushToast("error", `Failed to import subscription: ${appErrorMessage(err)}`);
+    } finally {
+      set({ subscriptionBusy: false });
+    }
+  },
+
+  importSubscriptionText: async (text) => {
+    set({ subscriptionBusy: true });
+    const before = get().config?.servers?.length ?? 0;
+    try {
+      const config = await ipc.subscriptionImportText(text);
+      set({ config });
+      const imported = config.servers.length - before;
+      get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
+    } catch (err) {
+      get().pushToast("error", `Failed to import servers: ${appErrorMessage(err)}`);
+    } finally {
+      set({ subscriptionBusy: false });
+    }
+  },
+
+  importSubscriptionFile: async (path) => {
+    set({ subscriptionBusy: true });
+    const before = get().config?.servers?.length ?? 0;
+    try {
+      const config = await ipc.subscriptionImportFile(path);
+      set({ config });
+      const imported = config.servers.length - before;
+      get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
+    } catch (err) {
+      get().pushToast("error", `Failed to import file: ${appErrorMessage(err)}`);
     } finally {
       set({ subscriptionBusy: false });
     }
@@ -338,6 +414,83 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ config });
     } catch (err) {
       get().pushToast("error", `Failed to reorder rules: ${appErrorMessage(err)}`);
+    }
+  },
+
+  setAppRoute: async (appId, appLabel, geositeName, outbound) => {
+    const current = get().config;
+    if (!current) return;
+    const ruleId = appRoutingRuleId(appId);
+
+    set({ appRoutingBusy: true });
+    try {
+      if (outbound === null) {
+        if (current.rules.some((r) => r.id === ruleId)) {
+          const config = await ipc.rulesDelete(ruleId);
+          set({ config });
+        }
+        return;
+      }
+
+      let workingConfig = current;
+      const resourceId = ruleResourceId("geosite", geositeName);
+      if (!workingConfig.ruleResources.some((r) => r.id === resourceId)) {
+        workingConfig = await ipc.ruleResourcesDownload("geosite", geositeName);
+        set({ config: workingConfig });
+      }
+
+      const rule: RoutingRule = {
+        id: ruleId,
+        name: `App routing: ${appLabel}`,
+        enabled: true,
+        matchType: "ruleSet",
+        values: [resourceId],
+        outbound,
+      };
+      const config = workingConfig.rules.some((r) => r.id === ruleId)
+        ? await ipc.rulesUpdate(rule)
+        : await ipc.rulesAdd(rule);
+      set({ config });
+    } catch (err) {
+      get().pushToast("error", `Failed to update app routing for "${appLabel}": ${appErrorMessage(err)}`);
+    } finally {
+      set({ appRoutingBusy: false });
+    }
+  },
+
+  applyRegionPreset: async (presetId) => {
+    const current = get().config;
+    if (!current) return;
+    const preset = REGION_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    set({ regionPresetBusy: true });
+    try {
+      let workingConfig = current;
+      for (const ref of presetResourceRefs(preset)) {
+        const resourceId = ruleResourceId(ref.category, ref.name);
+        if (!workingConfig.ruleResources.some((r) => r.id === resourceId)) {
+          workingConfig = await ipc.ruleResourcesDownload(ref.category, ref.name);
+        }
+      }
+
+      const keptRules = preset.clearsAllRules
+        ? []
+        : workingConfig.rules.filter((r) => !r.id.startsWith(PRESET_RULE_PREFIX));
+
+      const nextConfig: UserConfig = {
+        ...workingConfig,
+        rules: [...keptRules, ...buildPresetRules(preset)],
+        defaultOutbound: preset.defaultOutbound,
+      };
+
+      await ipc.configSave(nextConfig);
+      set({ config: nextConfig });
+      get().pushToast("success", `Applied preset "${preset.label}"`);
+    } catch (err) {
+      get().pushToast("error", `Failed to apply preset: ${appErrorMessage(err)}`);
+    } finally {
+      set({ regionPresetBusy: false });
     }
   },
 
@@ -429,6 +582,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("success", "Connection history cleared");
     } catch (err) {
       get().pushToast("error", `Failed to clear connection history: ${appErrorMessage(err)}`);
+    }
+  },
+
+  refreshLogs: async () => {
+    try {
+      const logEntries = await ipc.logsGet();
+      set({ logEntries });
+    } catch (err) {
+      get().pushToast("error", `Failed to load logs: ${appErrorMessage(err)}`);
+    }
+  },
+
+  clearLogs: async () => {
+    try {
+      await ipc.logsClear();
+      set({ logEntries: [] });
+      get().pushToast("success", "Logs cleared");
+    } catch (err) {
+      get().pushToast("error", `Failed to clear logs: ${appErrorMessage(err)}`);
     }
   },
 

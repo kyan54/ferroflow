@@ -5,8 +5,10 @@ import { ToastStack } from "./components/ToastStack";
 import { DashboardView } from "./views/DashboardView";
 import { ServersView } from "./views/ServersView";
 import { RulesView } from "./views/RulesView";
+import { AppRoutingView } from "./views/AppRoutingView";
 import { RuleResourcesView } from "./views/RuleResourcesView";
 import { ConnectionsView } from "./views/ConnectionsView";
+import { LogsView } from "./views/LogsView";
 import { SettingsView } from "./views/SettingsView";
 import { useAppStore } from "./store";
 
@@ -25,8 +27,10 @@ function App() {
         {view === "dashboard" && <DashboardView />}
         {view === "servers" && <ServersView />}
         {view === "rules" && <RulesView />}
+        {view === "appRouting" && <AppRoutingView />}
         {view === "ruleResources" && <RuleResourcesView />}
         {view === "connections" && <ConnectionsView />}
+        {view === "logs" && <LogsView />}
         {view === "settings" && <SettingsView />}
       </main>
       <ToastStack />

@@ -43,12 +43,16 @@ try {
 | `dashboard_open` | — | `()` | opens (or focuses, if already open) the bundled sing-box dashboard window; `proxy_not_running` if the proxy isn't running; see "sing-box dashboard" below |
 | `history_list` | — | `HistoryEntry[]` | reads the local connection-history log, most-recent-first; missing file (never enabled) returns `[]`, not an error; see "Connection history" below |
 | `history_clear` | — | `()` | deletes the history file; idempotent, missing file is not an error |
+| `logs_get` | — | `LogEntry[]` | reads the in-memory app+core log ring buffer, oldest-first; see "Logs" below |
+| `logs_clear` | — | `()` | empties the log ring buffer |
 | `system_proxy_status` | — | `SystemProxyStatus` | delegates to `net` |
 | `platform_info` | — | `PlatformInfo` | `is_admin`/`os_version` still stubbed to `false`/`""` |
 | `helper_get_status` | — | `HelperStatus` | pings the platform helper; `installed`/`ready` both `false` if unreachable |
 | `helper_install` | — | `HelperStatus` | one-time elevated install (UAC/osascript/pkexec); see "Helper install flow" below |
 | `helper_uninstall` | — | `HelperStatus` | reverses install |
 | `subscription_import` | `url: string` | `UserConfig` | fetches + parses a subscription URL, appends the parsed servers, persists, returns full config; see "Subscription import" below |
+| `subscription_import_text` | `text: string` | `UserConfig` | parses pasted, free-form share-link text (no network) through the same pipeline as `subscription_import`, appends, persists, returns full config |
+| `subscription_import_file` | `path: string` | `UserConfig` | reads a local file (chosen by the frontend's native open dialog); `.yaml`/`.yml` is parsed as a Clash config's `proxies:` list, anything else as free-form share-link text; appends, persists, returns full config |
 | `warp_register` | — | `UserConfig` | registers a new anonymous Cloudflare WARP device, appends it as a WireGuard server, persists, returns full config; see "Cloudflare WARP" below |
 | `backup_export` | `path: string` | `()` | writes the current config as a versioned JSON backup to `path` (chosen by the frontend's native save dialog); see "Backup & diagnostics" below |
 | `backup_import` | `path: string` | `UserConfig` | reads a versioned JSON backup from `path` (chosen by the frontend's native open dialog), replaces + persists the config, returns the new config |
@@ -135,6 +139,53 @@ appends duplicate servers rather than merging against what's already in
 provider's URL, an update timestamp, ...) to dedupe against yet. Fine for a
 one-shot "paste a URL, get servers" MVP flow; revisit once there's a UI for
 managing/refreshing a named subscription rather than importing once.
+
+**Three import entry points, one shared tail.** The Servers page's import
+modal (`ServersView.tsx`'s `SubscriptionImportForm`) offers three modes,
+each backed by its own command but all funneling into the same
+append-persist-return tail (`commands::subscription::import_servers`):
+
+- **URL** (`subscription_import`) — as above.
+- **Paste text** (`subscription_import_text`) — a multi-line textarea of raw
+  share-links, no network fetch; reuses `subscription::parse_subscription_body`
+  directly on the pasted string (which already tolerates a whole-body
+  base64-wrapped block, same as the URL path's fetched body).
+- **File** (`subscription_import_file`) — the frontend resolves a path via
+  `@tauri-apps/plugin-dialog`'s `open()` (filtered to `.txt`/`.yaml`/`.yml`)
+  and passes it straight through; the command reads the file itself and
+  branches on extension: `.yaml`/`.yml` (case-insensitive) goes through
+  `subscription::parse_clash_yaml` (see "Clash YAML import" below), anything
+  else goes through the same `parse_subscription_body` path as pasted text.
+
+All three fail with `subscription_empty` if parsing yields zero servers, and
+`subscription_import_file` additionally fails with
+`subscription_file_read_failed` if the path can't be read at all (missing
+file, permissions, ...).
+
+## Clash YAML import
+
+`subscription::parse_clash_yaml` (`crates/subscription/src/clash.rs`) is a
+second, pure/side-effect-free parser alongside `parse.rs`'s share-link
+parser, for the other common real-world subscription shape: a Clash-style
+YAML config. It extracts the top-level `proxies:` sequence and converts each
+entry to a `ServerConfig`, covering the same four protocols this app
+actually supports end to end — `vless`, `trojan`, `ss` (shadowsocks), and
+`vmess` (matching `Protocol`'s variants minus `wireguard`, which has no
+share-link *or* Clash-YAML convention to target). Any other `type` (e.g.
+`hysteria2`, `ssr`, `snell`) is skipped, counted but not fatal — same
+per-entry-skip policy as a malformed share-link line.
+
+Parsing is deliberately lenient (`serde_yaml::Value` field-by-field
+extraction, not one strict `#[derive(Deserialize)]` struct) because
+real-world Clash configs vary in key naming across generators — e.g. both
+`reality-opts`/`reality_opts` and both nested `public-key`/`public_key` are
+accepted, and `skip-cert-verify` or `insecure` either one sets
+`TlsConfig.insecure`. Only the fields `core-manager`'s outbound builder
+actually reads are extracted (same scope note as the share-link parser) —
+transport options (`network`, `ws-opts`, `grpc-opts`, ...) are ignored. An
+unparseable document (not valid YAML, or no top-level `proxies` sequence)
+yields an empty result rather than an error; `subscription_import_file` is
+what turns an empty result into the user-facing `subscription_empty` error.
 
 ## Cloudflare WARP
 
@@ -269,6 +320,16 @@ previous all-or-nothing behavior — e.g. "domain suffix `.cn` goes direct" or
 - **Scope**: domain (exact/suffix/keyword), IP CIDR, process-name matching,
   and GeoIP/GeoSite `.srs` rule-set references (`matchType: "ruleSet"`) --
   see "Rule resources" below for that last one.
+- **Fallback outbound.** `UserConfig.defaultOutbound` (`"proxy"` by default,
+  same as this app's behavior before the field existed) is the tag
+  sing-box's `route.final` resolves to -- what happens to traffic that
+  matches no enabled rule. `core_manager::config::build_config_with_inbound`
+  also promotes a `block` outbound into existence when `defaultOutbound` is
+  `"block"`, same as it already does for a `block`-outbound rule. Driven by
+  region presets (see "App routing & region presets" below), which need
+  "proxy only these rule-sets, everything else direct" -- not expressible
+  via `route.rules` alone, since sing-box has no literal "match everything"
+  rule condition.
 
 ## Rule resources
 
@@ -290,13 +351,14 @@ https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-<name>.srs
 ```
 
 Each branch holds well over a thousand files — `rule_resources::builtin_catalog()`
-is a small, curated set of ~20 commonly useful ones (`cn`/`geolocation-!cn`
+is a small, curated set of ~25 commonly useful ones (`cn`/`geolocation-!cn`
 GeoSite, `cn`/`private` GeoIP, and per-service GeoSite entries like
 `netflix`/`youtube`/`google`/`github`/`openai`/`telegram`/`tiktok`/
 `disney`/`spotify`/`twitter`/`facebook`/`instagram`/`microsoft`/`apple`/
-`amazon`/`category-ads-all`), not an exhaustive list. Any other valid
-upstream filename can still be added via `rule_resources_download_custom`,
-which takes an arbitrary name/URL directly.
+`amazon`/`category-ads-all`/`discord`/`steam`/`playstation`/`anthropic`/
+`docker`), not an exhaustive list. Any other valid upstream filename can
+still be added via `rule_resources_download_custom`, which takes an
+arbitrary name/URL directly.
 
 **GitHub-acceleration prefix.** `UserConfig.githubAccelPrefix` (optional,
 `None`/blank by default) is an opaque string prepended verbatim in front of
@@ -310,7 +372,11 @@ GitHub-blocked-in-China network conditions.
 (`state::rule_resources_dir`), atomically (`rule_resources::download` writes
 to `<path>.tmp` then renames over the real path). Each download's size and
 SHA-256 are recorded on the corresponding `RuleResourceInfo` in
-`UserConfig.rule_resources`, keyed by `id` (same as `name` today).
+`UserConfig.rule_resources`, keyed by `id` -- `"<category file-prefix>-<name>"`
+(e.g. `"geosite-netflix"`, `"geoip-cn"`; see `commands::rule_resources::resource_id`),
+**not** bare `name` -- the catalog deliberately has entries that share a
+`name` across both categories (`"cn"` is both a GeoSite and a GeoIP entry),
+so an id derived from `name` alone would collide between them.
 
 **Referencing a resource from a rule.** `RuleMatchType::RuleSet`
 (`matchType: "ruleSet"` on the wire) is the one `RoutingRule.match_type`
@@ -357,6 +423,52 @@ do with whether a proxy run is active). Started once from `lib.rs`'s
 `.setup()` hook and left running for the app's whole lifetime; it re-reads
 both settings fresh on every wake-up, so toggling them takes effect on the
 next tick without a restart.
+
+## App routing & region presets
+
+`AppRoutingView` (`src/views/AppRoutingView.tsx`, `src/lib/appRouting.ts`) is
+a friendlier UI layer on top of the exact same `RoutingRule`/rule-resources
+infra above -- **no new Tauri commands**, it only calls `rules_add`/
+`rules_update`/`rules_delete`, `rule_resources_download`, and `config_save`,
+same as `RulesView`/`RuleResourcesView`/`SettingsView` already do.
+
+**App routing.** `APP_ROUTING_CATALOG` is a curated ~17-entry list of
+well-known apps/services grouped into categories (Streaming, Social, AI
+tools, Gaming, Dev & productivity), each mapped to one existing GeoSite
+catalog entry. Each app gets a 4-way control (Off/Proxy/Direct/Block); the
+page derives its current value by looking for a `RoutingRule` whose `id` is
+`` `app-routing:${appId}` `` (see `appRoutingRuleId`) in `config.rules` --
+this deterministic id convention is the "marker" that lets the page read its
+own state back out of the plain rules list on load, instead of needing a
+dedicated field on `RoutingRule`. Setting a value other than "Off" downloads
+the backing GeoSite resource first if `config.ruleResources` doesn't already
+have it, then adds (or updates, if the rule already exists) a
+`matchType: "ruleSet"` rule referencing it; setting "Off" deletes the rule
+if present.
+
+**Region presets.** `REGION_PRESETS` is a small fixed set (China direct/rest
+proxy, streaming via proxy/rest direct, block ads + China direct/rest proxy,
+global proxy with no rules). Each preset bundles one or more GeoSite/GeoIP
+resource ids into a `RoutingRule` (sing-box's `rule_set` field matches if
+traffic matches *any* of the listed rule-sets, so e.g. GeoSite `cn` + GeoIP
+`cn` in one rule covers "China by domain or by IP") and sets
+`UserConfig.defaultOutbound` -- see "Routing rules" above for why a preset
+needs to touch that field (expressing "proxy only X, everything else Y" isn't
+possible with `route.rules` alone). Applying a preset:
+
+1. Downloads any referenced resource not already in `config.ruleResources`.
+2. Removes only *that preset's own* previously-applied rules -- ids prefixed
+   `preset:<presetId>:` (see `PRESET_RULE_PREFIX`) -- leaving manual rules and
+   `AppRoutingView` toggles in `config.rules` untouched. The one exception is
+   "Global proxy, no rules" (`clearsAllRules: true`), which is explicitly a
+   wipe-everything preset by design and clears the whole `rules` array.
+3. Appends the preset's fresh rules and saves via `config_save`.
+
+The frontend arms a preset button on first click ("Apply" -> "Confirm?") and
+applies it on the second, mirroring the two-step confirm pattern already
+used for destructive actions elsewhere (`RulesView`/`ServersView`/
+`RuleResourcesView` delete buttons, `SettingsView`'s "Remove helper") rather
+than a modal dialog.
 
 ## Live connections
 
@@ -550,6 +662,57 @@ the tracked sing-box run stops, whether via an explicit `proxy_stop` or a new
 `proxy_start` superseding it, so a stale recorder never keeps appending to
 the file after its run has ended.
 
+## Logs
+
+A live, in-memory diagnostic log view -- distinct from "Connection history"
+above (which only ever records finished *connections*, not general app/core
+activity) and always-on (no opt-in toggle, since it logs no destination/
+traffic data, just operational messages). Mirrors the sibling Electron app's
+Logs page.
+
+**What's captured.** `core_manager::logs::LogBuffer` is a single bounded
+`VecDeque<LogEntry>` (capped at `MAX_LOG_LINES` = 2000, oldest evicted first)
+fed from two sources at once:
+
+- **This app's own `tracing` events** (`source: "app"`) -- `src-tauri`'s
+  `log_layer::LogCaptureLayer`, a custom `tracing_subscriber::Layer` installed
+  alongside (not instead of) the existing stdout `fmt` layer in `run()`, so
+  every `tracing::info!`/`warn!`/`error!`/etc. call anywhere in the backend is
+  captured with no per-call-site changes needed. `target` is the `tracing`
+  target/module path (e.g. `"core_manager"`).
+- **sing-box's own stdout/stderr** (`source: "core"`, `target: null`) --
+  `CoreManager::start` (`Backend::Local` only; `ProcessHandle::take_stdio`)
+  spawns one `core_manager::logs::spawn_line_reader` task per stream right
+  after a successful spawn, reading line-by-line and pushing each non-blank
+  line in. `level` is a best-effort guess from known sing-box level tokens
+  (`FATAL`/`ERROR`/`WARN`/`DEBUG`/`TRACE`, defaulting to `Info`) -- sing-box's
+  raw text output isn't structurally parsed. These reader tasks are aborted
+  in `stop_running` alongside `history_task`, same reasoning (best-effort
+  background forwarders, no critical section). Not wired up for
+  `Backend::Helper` (`Tun` mode) -- the helper owns that child process, not
+  `core-manager` directly; out of scope for this pass.
+
+**In-memory only, no opt-in, no persistence.** Unlike connection history,
+nothing is ever written to disk and there is no `UserConfig` toggle -- the
+buffer just accumulates for the app's running lifetime and is cleared on
+`logs_clear` or app restart. `LogEntry` shape:
+
+```ts
+{
+  timestamp: string;        // RFC3339, when this entry was captured
+  level: "trace" | "debug" | "info" | "warn" | "error";
+  source: string;           // "app" | "core"
+  target?: string | null;   // tracing target/module path, "app" entries only
+  message: string;
+}
+```
+
+`logs_get` returns the buffer oldest-first (a live log view reads top to
+bottom, unlike `history_list`'s most-recent-first look-back convention).
+`logs_clear` empties it. The frontend (`LogsView.tsx`) polls `logs_get` every
+2 seconds, same interval/cleanup pattern as `ConnectionsView`'s
+`connections_list` polling, and auto-scrolls to the bottom on new entries.
+
 ## Types (`crates/shared-types/src/lib.rs`)
 
 `Protocol` (Vless/Trojan/Shadowsocks/Vmess/Wireguard for MVP — see file
@@ -557,7 +720,7 @@ header), `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`,
 `UserConfig`, `RoutingRule`, `RuleMatchType`, `RuleOutbound`,
 `RuleResourceCategory`, `RuleResourceInfo`, `HelperStatus`,
 `SystemProxyStatus`, `PlatformInfo`, `ConnectionMetadata`, `ConnectionInfo`,
-`ConnectionsSnapshot`, `HistoryEntry`, `AppError`/`AppResult`. Field names are `camelCase`
+`ConnectionsSnapshot`, `HistoryEntry`, `LogLevel`, `LogEntry`, `AppError`/`AppResult`. Field names are `camelCase`
 on the wire (serde `rename_all`) to match the existing TS naming convention
 — with one deliberate exception: `ConnectionMetadata::destination_ip` is
 explicitly renamed to `destinationIP` (not the `camelCase`-derived

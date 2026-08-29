@@ -1,7 +1,18 @@
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../store";
 import { ServerForm } from "../components/ServerForm";
-import { Card, CardHeader, CardTitle, CardContent, Button, Input, Badge } from "../components/ui";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Button,
+  Input,
+  Textarea,
+  Badge,
+  SegmentedControl,
+} from "../components/ui";
 import type { BadgeVariant } from "../components/ui";
 import type { Protocol } from "../types";
 
@@ -13,15 +24,51 @@ const PROTOCOL_BADGE: Record<Protocol, BadgeVariant> = {
   wireguard: "wireguard",
 };
 
+const SHARE_LINK_HINT = (
+  <>
+    <code className="font-mono text-fg-dim">vless://</code>, <code className="font-mono text-fg-dim">trojan://</code>
+    , <code className="font-mono text-fg-dim">ss://</code>, <code className="font-mono text-fg-dim">vmess://</code>
+  </>
+);
+
+type ImportMode = "url" | "paste" | "file";
+
+const IMPORT_MODE_OPTIONS: { value: ImportMode; label: string }[] = [
+  { value: "url", label: "URL" },
+  { value: "paste", label: "Paste text" },
+  { value: "file", label: "File" },
+];
+
 function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
   const importSubscription = useAppStore((s) => s.importSubscription);
+  const importSubscriptionText = useAppStore((s) => s.importSubscriptionText);
+  const importSubscriptionFile = useAppStore((s) => s.importSubscriptionFile);
   const subscriptionBusy = useAppStore((s) => s.subscriptionBusy);
+  const [mode, setMode] = useState<ImportMode>("url");
   const [url, setUrl] = useState("");
+  const [text, setText] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!url.trim()) return;
-    await importSubscription(url.trim());
+    if (mode === "url") {
+      if (!url.trim()) return;
+      await importSubscription(url.trim());
+      onDone();
+    } else if (mode === "paste") {
+      if (!text.trim()) return;
+      await importSubscriptionText(text);
+      onDone();
+    }
+  }
+
+  async function handleChooseFile() {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Server list", extensions: ["txt", "yaml", "yml"] }],
+    });
+    if (!selected) return;
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    await importSubscriptionFile(path);
     onDone();
   }
 
@@ -29,35 +76,82 @@ function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
     <Card>
       <form onSubmit={handleSubmit}>
         <CardHeader>
-          <CardTitle>Import from subscription URL</CardTitle>
+          <CardTitle>Import servers</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-4">
-          <p className="text-sm text-fg-faint">
-            Fetches the URL and imports every server it contains. Supports a base64-encoded body or
-            plain text, one share link per line ( <code className="font-mono text-fg-dim">vless://</code>,{" "}
-            <code className="font-mono text-fg-dim">trojan://</code>,{" "}
-            <code className="font-mono text-fg-dim">ss://</code>,{" "}
-            <code className="font-mono text-fg-dim">vmess://</code> ). Importing the same URL twice
-            appends duplicates — there's no dedupe yet.
-          </p>
-          <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-            Subscription URL
-            <Input
-              required
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://provider.example.com/subscribe/abc123"
-            />
-          </label>
+          <SegmentedControl
+            aria-label="Import mode"
+            options={IMPORT_MODE_OPTIONS}
+            value={mode}
+            onChange={setMode}
+          />
+
+          {mode === "url" && (
+            <>
+              <p className="text-sm text-fg-faint">
+                Fetches the URL and imports every server it contains. Supports a base64-encoded body or
+                plain text, one share link per line ( {SHARE_LINK_HINT} ). Importing the same URL twice
+                appends duplicates — there's no dedupe yet.
+              </p>
+              <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                Subscription URL
+                <Input
+                  required
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://provider.example.com/subscribe/abc123"
+                />
+              </label>
+            </>
+          )}
+
+          {mode === "paste" && (
+            <>
+              <p className="text-sm text-fg-faint">
+                Paste one or more share links, one per line ( {SHARE_LINK_HINT} ). A whole-body
+                base64-wrapped block is also accepted.
+              </p>
+              <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                Share links
+                <Textarea
+                  required
+                  rows={6}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="vless://...&#10;trojan://...&#10;ss://..."
+                  className="font-mono text-xs"
+                />
+              </label>
+            </>
+          )}
+
+          {mode === "file" && (
+            <>
+              <p className="text-sm text-fg-faint">
+                Pick a local <code className="font-mono text-fg-dim">.txt</code> file of share links, or a
+                Clash-style <code className="font-mono text-fg-dim">.yaml</code>/
+                <code className="font-mono text-fg-dim">.yml</code> config — its top-level{" "}
+                <code className="font-mono text-fg-dim">proxies:</code> list is imported (vless, trojan,
+                shadowsocks, and vmess entries only).
+              </p>
+              <div className="flex justify-end">
+                <Button type="button" onClick={handleChooseFile} busy={subscriptionBusy}>
+                  Choose file…
+                </Button>
+              </div>
+            </>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onDone}>
               Cancel
             </Button>
-            <Button type="submit" busy={subscriptionBusy}>
-              Import
-            </Button>
+            {mode !== "file" && (
+              <Button type="submit" busy={subscriptionBusy}>
+                Import
+              </Button>
+            )}
           </div>
         </CardContent>
       </form>
@@ -68,6 +162,7 @@ function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
 export function ServersView() {
   const config = useAppStore((s) => s.config);
   const deleteServer = useAppStore((s) => s.deleteServer);
+  const duplicateServer = useAppStore((s) => s.duplicateServer);
   const registerWarp = useAppStore((s) => s.registerWarp);
   const warpBusy = useAppStore((s) => s.warpBusy);
   const [showForm, setShowForm] = useState(false);
@@ -95,7 +190,7 @@ export function ServersView() {
               {warpBusy ? "Registering…" : "Get Cloudflare WARP"}
             </Button>
             <Button variant="outline" onClick={() => setShowImportForm(true)}>
-              Import from URL
+              Import
             </Button>
             <Button onClick={() => setShowForm(true)}>Add server</Button>
           </div>
@@ -127,14 +222,19 @@ export function ServersView() {
                       {server.address}:{server.port}
                     </p>
                   </div>
-                  <Button
-                    variant={pendingDeleteId === server.id ? "destructive" : "ghost"}
-                    size="sm"
-                    onClick={() => handleDelete(server.id)}
-                    onBlur={() => setPendingDeleteId(null)}
-                  >
-                    {pendingDeleteId === server.id ? "Confirm delete?" : "Delete"}
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => duplicateServer(server.id)}>
+                      Duplicate
+                    </Button>
+                    <Button
+                      variant={pendingDeleteId === server.id ? "destructive" : "ghost"}
+                      size="sm"
+                      onClick={() => handleDelete(server.id)}
+                      onBlur={() => setPendingDeleteId(null)}
+                    >
+                      {pendingDeleteId === server.id ? "Confirm delete?" : "Delete"}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </li>
