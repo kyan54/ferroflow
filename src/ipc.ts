@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ConnectionsSnapshot,
   HelperStatus,
   PlatformInfo,
   ProxyStatus,
@@ -29,6 +30,10 @@ export const ipc = {
   proxyStart: (serverId: string) => invoke<ProxyStatus>("proxy_start", { serverId }),
   proxyStop: () => invoke<ProxyStatus>("proxy_stop"),
   proxyStatus: () => invoke<ProxyStatus>("proxy_status"),
+
+  connectionsList: () => invoke<ConnectionsSnapshot>("connections_list"),
+  connectionsClose: (id: string) => invoke<void>("connections_close", { id }),
+  connectionsCloseAll: () => invoke<void>("connections_close_all"),
 
   subscriptionImport: (url: string) => invoke<UserConfig>("subscription_import", { url }),
 

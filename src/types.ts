@@ -112,6 +112,33 @@ export interface PlatformInfo {
   isAdmin: boolean;
 }
 
+export interface ConnectionMetadata {
+  network: string;
+  /** May be empty -- fall back to `destinationIP`:`destinationPort` for display. */
+  host: string;
+  destinationIP: string;
+  destinationPort: string;
+}
+
+export interface ConnectionInfo {
+  id: string;
+  metadata: ConnectionMetadata;
+  upload: number;
+  download: number;
+  /** RFC3339 timestamp string, e.g. "2024-01-15T10:30:00.123456Z". */
+  start: string;
+  chains: string[];
+  /** Name of the matched routing rule, or "" if it fell through to the default route. */
+  rule: string;
+}
+
+export interface ConnectionsSnapshot {
+  /** Cumulative bytes downloaded since sing-box started -- sing-box's own semantics. */
+  downloadTotal: number;
+  uploadTotal: number;
+  connections: ConnectionInfo[];
+}
+
 /** Shape of every rejected Tauri command promise (`AppError` on the Rust side). */
 export interface AppError {
   code: string;

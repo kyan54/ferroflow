@@ -5,6 +5,7 @@ import { ToastStack } from "./components/ToastStack";
 import { DashboardView } from "./views/DashboardView";
 import { ServersView } from "./views/ServersView";
 import { RulesView } from "./views/RulesView";
+import { ConnectionsView } from "./views/ConnectionsView";
 import { SettingsView } from "./views/SettingsView";
 import { useAppStore } from "./store";
 
@@ -23,6 +24,7 @@ function App() {
         {view === "dashboard" && <DashboardView />}
         {view === "servers" && <ServersView />}
         {view === "rules" && <RulesView />}
+        {view === "connections" && <ConnectionsView />}
         {view === "settings" && <SettingsView />}
       </main>
       <ToastStack />

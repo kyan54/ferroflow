@@ -10,6 +10,7 @@
 //! 1.14+) is still a later pass — see `docs/ipc-contract.md` for the Tauri
 //! command surface this crate backs.
 
+pub mod clash_api;
 pub mod config;
 pub mod process;
 pub mod tun;
@@ -21,7 +22,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use helper_client::HelperClient;
 use shared_types::{
-    AppError, AppResult, ProxyErrorCode, ProxyModeType, ProxyStatus, RoutingRule, ServerConfig,
+    AppError, AppResult, ConnectionsSnapshot, ProxyErrorCode, ProxyModeType, ProxyStatus,
+    RoutingRule, ServerConfig,
 };
 use tokio::sync::Mutex;
 
@@ -57,6 +59,11 @@ struct RunningCore {
     /// (`SystemProxy`/`Manual`) — `None` for `Tun`. Mirrored into
     /// `ProxyStatus::local_port`.
     local_port: Option<u16>,
+    /// Port sing-box's Clash API (`experimental.clash_api.external_controller`)
+    /// is listening on for this run. Unlike `local_port`, every run has one
+    /// — traffic visibility doesn't depend on which inbound is active — so
+    /// this is not `Option`.
+    clash_api_port: u16,
 }
 
 pub struct CoreManager {
@@ -166,8 +173,21 @@ impl CoreManager {
                 let port = pick_local_port().map_err(|e| {
                     AppError::new("port_in_use", format!("failed to allocate a local proxy port: {e}"))
                 })?;
+                // Second independent ephemeral-port allocation for the Clash
+                // API listener — `pick_local_port` binds `:0` and releases
+                // the listener before returning, so back-to-back calls never
+                // collide with each other (each gets a fresh OS-assigned
+                // port), only (in principle) with something else grabbing
+                // the port in the brief window between release and sing-box
+                // actually binding it -- see `pick_local_port`'s doc comment.
+                let clash_api_port = pick_local_port().map_err(|e| {
+                    AppError::new(
+                        "port_in_use",
+                        format!("failed to allocate a local port for the Clash API: {e}"),
+                    )
+                })?;
 
-                let cfg = config::build_config(server, port, rules);
+                let cfg = config::build_config(server, port, rules, clash_api_port);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -214,6 +234,7 @@ impl CoreManager {
                     config_path,
                     mode_type,
                     local_port: Some(port),
+                    clash_api_port,
                 });
 
                 Ok(ProxyStatus {
@@ -236,7 +257,14 @@ impl CoreManager {
                     ));
                 }
 
-                let cfg = config::build_tun_config(server, rules);
+                let clash_api_port = pick_local_port().map_err(|e| {
+                    AppError::new(
+                        "port_in_use",
+                        format!("failed to allocate a local port for the Clash API: {e}"),
+                    )
+                })?;
+
+                let cfg = config::build_tun_config(server, rules, clash_api_port);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -258,6 +286,7 @@ impl CoreManager {
                     config_path,
                     mode_type,
                     local_port: None,
+                    clash_api_port,
                 });
 
                 Ok(ProxyStatus {
@@ -403,6 +432,49 @@ impl CoreManager {
                 }
             }
         }
+    }
+
+    /// Queries sing-box's Clash API for the current connection list plus
+    /// cumulative upload/download totals (`GET /connections` — see
+    /// `clash_api::get_connections`). Fails with `proxy_not_running` if
+    /// nothing is currently running, rather than picking a stale/bogus port.
+    pub async fn list_connections(&self) -> AppResult<ConnectionsSnapshot> {
+        let port = self.clash_api_port().await?;
+        clash_api::get_connections(port).await.map_err(|e| {
+            AppError::new("clash_api_error", format!("failed to query connections: {e}"))
+        })
+    }
+
+    /// Closes one connection by id (`DELETE /connections/{id}` — see
+    /// `clash_api::close_connection`). Fails with `proxy_not_running` if
+    /// nothing is currently running.
+    pub async fn close_connection(&self, id: &str) -> AppResult<()> {
+        let port = self.clash_api_port().await?;
+        clash_api::close_connection(port, id).await.map_err(|e| {
+            AppError::new("clash_api_error", format!("failed to close connection '{id}': {e}"))
+        })
+    }
+
+    /// Closes every current connection (`DELETE /connections` — see
+    /// `clash_api::close_all_connections`). Fails with `proxy_not_running` if
+    /// nothing is currently running.
+    pub async fn close_all_connections(&self) -> AppResult<()> {
+        let port = self.clash_api_port().await?;
+        clash_api::close_all_connections(port).await.map_err(|e| {
+            AppError::new("clash_api_error", format!("failed to close all connections: {e}"))
+        })
+    }
+
+    /// Shared lookup for the three Clash API methods above: the currently
+    /// tracked run's `clash_api_port`, or `proxy_not_running` if nothing is
+    /// running. Locks `self.running` only briefly (a `u16` copy), not held
+    /// across the subsequent HTTP call.
+    async fn clash_api_port(&self) -> AppResult<u16> {
+        let guard = self.running.lock().await;
+        guard
+            .as_ref()
+            .map(|running| running.clash_api_port)
+            .ok_or_else(|| AppError::new("proxy_not_running", "the proxy is not currently running"))
     }
 }
 

@@ -14,6 +14,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# rustls, not native-tls/OpenSSL, so Linux CI doesn't need system OpenSSL dev
+# packages -- matches crates/subscription's fetch.rs exactly, so the
+# workspace doesn't end up with two different TLS backends.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Graceful stop (SIGTERM before SIGKILL) needs a raw `kill(2)` — Unix only,
 # see crates/core-manager/src/process.rs::ProcessHandle::stop.

@@ -1,4 +1,5 @@
 pub mod config;
+pub mod connections;
 pub mod helper;
 #[cfg(target_os = "windows")]
 pub mod helper_windows;

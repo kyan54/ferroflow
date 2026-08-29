@@ -185,6 +185,63 @@ pub struct PlatformInfo {
     pub is_admin: bool,
 }
 
+/// Mirrors the `metadata` object inside one entry of sing-box's Clash API
+/// `GET /connections` response. Only the fields this app actually displays
+/// are extracted -- sing-box's real metadata object carries several more
+/// (`type`, `sourceIP`, `sourcePort`, `dnsMode`, `processPath`, ...) that
+/// aren't surfaced here.
+///
+/// `destination_ip`/`destination_port` map to sing-box's `destinationIP`/
+/// `destinationPort` wire fields. `rename_all = "camelCase"` alone would
+/// produce `destinationIp` (lowercase `p`) for `destination_ip`, which does
+/// NOT match sing-box's actual `destinationIP` key -- that mismatch would
+/// silently deserialize to an empty string rather than fail to compile, so
+/// it needs an explicit `rename` override. `destination_port` already
+/// round-trips correctly under plain `camelCase` (`destinationPort`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionMetadata {
+    pub network: String,
+    /// May be empty when sing-box couldn't determine a hostname (e.g. a raw
+    /// IP connection with no SNI/Host header) -- callers should fall back to
+    /// `destination_ip`/`destination_port` for display in that case.
+    pub host: String,
+    #[serde(rename = "destinationIP")]
+    pub destination_ip: String,
+    pub destination_port: String,
+}
+
+/// One entry of sing-box's Clash API `GET /connections` response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionInfo {
+    pub id: String,
+    pub metadata: ConnectionMetadata,
+    pub upload: u64,
+    pub download: u64,
+    /// RFC3339 timestamp string (e.g. `"2024-01-15T10:30:00.123456Z"`), kept
+    /// as-is rather than parsed into a numeric timestamp -- this is the only
+    /// consumer of this value, and parsing it would mean pulling in a
+    /// chrono/time dependency for one field.
+    pub start: String,
+    /// Outbound tag chain the connection is routed through, outermost first.
+    pub chains: Vec<String>,
+    /// Name of the `route.rules` entry that matched, or empty when it fell
+    /// through to `route.final`.
+    pub rule: String,
+}
+
+/// Full response shape of sing-box's Clash API `GET /connections`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionsSnapshot {
+    /// Cumulative bytes downloaded since sing-box started -- sing-box's own
+    /// semantics, not something this app computes or resets independently.
+    pub download_total: u64,
+    pub upload_total: u64,
+    pub connections: Vec<ConnectionInfo>,
+}
+
 /// Error type returned by every Tauri command (`Result<T, AppError>`).
 /// Tauri serializes `Err` as the rejection value on the JS side, so the
 /// frontend no longer needs the old `{success,data,error,code}` envelope —

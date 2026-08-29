@@ -568,6 +568,7 @@ dependencies = [
  "helper-proto",
  "libc",
  "net",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "shared-types",

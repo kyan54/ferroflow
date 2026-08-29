@@ -199,8 +199,18 @@ pub fn build_route_rules(rules: &[RoutingRule]) -> Vec<Value> {
 /// built from `rules`, and `route.final` pointed at the proxy as the
 /// fallback when no rule matches. No DNS block, no TUN — sing-box's own
 /// defaults cover DNS resolution for this scope.
-pub fn build_config(server: &ServerConfig, inbound_port: u16, rules: &[RoutingRule]) -> Value {
-    build_config_with_inbound(server, build_inbound(inbound_port), rules)
+///
+/// `clash_api_port` enables sing-box's built-in Clash API
+/// (`experimental.clash_api.external_controller`) on `127.0.0.1:<port>`,
+/// giving `core-manager` a way to query live connections/traffic totals
+/// (see `crate::clash_api`) independent of which inbound is active.
+pub fn build_config(
+    server: &ServerConfig,
+    inbound_port: u16,
+    rules: &[RoutingRule],
+    clash_api_port: u16,
+) -> Value {
+    build_config_with_inbound(server, build_inbound(inbound_port), rules, clash_api_port)
 }
 
 /// Assembles the full sing-box config for a single-server TUN-mode run: one
@@ -209,16 +219,31 @@ pub fn build_config(server: &ServerConfig, inbound_port: u16, rules: &[RoutingRu
 /// config handed to the privileged helper (`HelperClient::start`) — a plain
 /// unprivileged process can't create a TUN interface, hence routing through
 /// the helper for this mode instead of `process::ProcessHandle`.
-pub fn build_tun_config(server: &ServerConfig, rules: &[RoutingRule]) -> Value {
-    build_config_with_inbound(server, tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME), rules)
+///
+/// `clash_api_port` — see `build_config`'s doc comment; TUN mode gets the
+/// same Clash API block since traffic visibility shouldn't depend on which
+/// inbound is active.
+pub fn build_tun_config(server: &ServerConfig, rules: &[RoutingRule], clash_api_port: u16) -> Value {
+    build_config_with_inbound(
+        server,
+        tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME),
+        rules,
+        clash_api_port,
+    )
 }
 
 /// Shared assembly: `inbound` is the only thing that differs between the
 /// mixed-proxy and TUN config shapes — outbounds/route are otherwise
 /// identical. A `block` outbound is only added when at least one enabled
 /// rule actually references it, so we never emit an outbound nothing points
-/// at.
-fn build_config_with_inbound(server: &ServerConfig, inbound: Value, rules: &[RoutingRule]) -> Value {
+/// at. `clash_api_port` is always set (every run gets a Clash API listener,
+/// regardless of mode) — see `build_config`'s doc comment.
+fn build_config_with_inbound(
+    server: &ServerConfig,
+    inbound: Value,
+    rules: &[RoutingRule],
+    clash_api_port: u16,
+) -> Value {
     let mut outbounds = vec![
         build_outbound(server),
         json!({
@@ -245,6 +270,11 @@ fn build_config_with_inbound(server: &ServerConfig, inbound: Value, rules: &[Rou
         "route": {
             "rules": build_route_rules(rules),
             "final": PROXY_OUTBOUND_TAG,
+        },
+        "experimental": {
+            "clash_api": {
+                "external_controller": format!("{}:{}", Ipv4Addr::LOCALHOST, clash_api_port),
+            },
         },
     })
 }
@@ -377,24 +407,26 @@ mod tests {
     #[test]
     fn full_config_has_mixed_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[]);
+        let cfg = build_config(&server, 12345, &[], 9999);
         assert_eq!(cfg["inbounds"][0]["type"], "mixed");
         assert_eq!(cfg["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(cfg["inbounds"][0]["listen_port"], 12345);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert_eq!(cfg["outbounds"][1]["type"], "direct");
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+        assert_eq!(cfg["experimental"]["clash_api"]["external_controller"], "127.0.0.1:9999");
     }
 
     #[test]
     fn full_tun_config_has_tun_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_tun_config(&server, &[]);
+        let cfg = build_tun_config(&server, &[], 9999);
         assert_eq!(cfg["inbounds"][0]["type"], "tun");
         assert_eq!(cfg["inbounds"][0]["interface_name"], DEFAULT_TUN_INTERFACE_NAME);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert_eq!(cfg["outbounds"][1]["type"], "direct");
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+        assert_eq!(cfg["experimental"]["clash_api"]["external_controller"], "127.0.0.1:9999");
     }
 
     fn rule(match_type: RuleMatchType, values: &[&str], outbound: RuleOutbound) -> RoutingRule {
@@ -468,7 +500,7 @@ mod tests {
     fn block_outbound_absent_when_no_block_rules() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r]);
+        let cfg = build_config(&server, 12345, &[r], 9999);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert!(cfg["outbounds"]
             .as_array()
@@ -481,7 +513,7 @@ mod tests {
     fn block_outbound_present_when_enabled_block_rule_exists() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
-        let cfg = build_config(&server, 12345, &[r]);
+        let cfg = build_config(&server, 12345, &[r], 9999);
         let outbounds = cfg["outbounds"].as_array().unwrap();
         assert_eq!(outbounds.len(), 3);
         assert!(outbounds.iter().any(|o| o["type"] == "block" && o["tag"] == BLOCK_OUTBOUND_TAG));
@@ -492,7 +524,7 @@ mod tests {
         let server = base_server(Protocol::Trojan);
         let mut r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
         r.enabled = false;
-        let cfg = build_config(&server, 12345, &[r]);
+        let cfg = build_config(&server, 12345, &[r], 9999);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
     }
 
@@ -500,7 +532,7 @@ mod tests {
     fn route_rules_appear_in_generated_config() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r]);
+        let cfg = build_config(&server, 12345, &[r], 9999);
         assert_eq!(cfg["route"]["rules"].as_array().unwrap().len(), 1);
         assert_eq!(cfg["route"]["rules"][0]["domain_suffix"], json!([".cn"]));
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
@@ -549,7 +581,7 @@ mod tests {
         ];
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &rules);
+        let cfg = build_config(&server, 12345, &rules, 9999);
 
         // Sanity-check the block outbound really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -576,6 +608,53 @@ mod tests {
         assert!(
             output.status.success(),
             "sing-box check rejected the generated config.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Confirms sing-box's real schema validator accepts the
+    /// `experimental.clash_api` block this module now emits on every config
+    /// (both `build_config` and `build_tun_config` — see their doc
+    /// comments). Same convention as
+    /// `real_singbox_check_accepts_config_with_all_rule_kinds`: not run by
+    /// default (`#[ignore]`), needs a real binary at
+    /// `<workspace root>/.dev-bin/sing-box[.exe]`. Run manually with:
+    /// `cargo test -p core-manager --all-targets -- --ignored real_singbox`
+    #[test]
+    #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/"]
+    fn real_singbox_check_accepts_config_with_clash_api() {
+        use std::process::Command;
+
+        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary =
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.dev-bin")).join(binary_name);
+        assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
+
+        let server = base_server(Protocol::Trojan);
+        let cfg = build_config(&server, 12345, &[], 19999);
+
+        // Sanity-check the clash_api block really is present before handing
+        // this to sing-box, so a failed `check` clearly means "sing-box
+        // rejected the shape" rather than "we forgot to build it".
+        assert_eq!(cfg["experimental"]["clash_api"]["external_controller"], "127.0.0.1:19999");
+
+        let mut path = std::env::temp_dir();
+        path.push(format!("ferroflow-config-clash-api-check-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+
+        let output = Command::new(&binary)
+            .arg("check")
+            .arg("-c")
+            .arg(&path)
+            .output()
+            .expect("failed to run sing-box check");
+
+        let _ = std::fs::remove_file(&path);
+
+        assert!(
+            output.status.success(),
+            "sing-box check rejected the generated config with clash_api enabled.\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

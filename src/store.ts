@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { ipc } from "./ipc";
 import { appErrorMessage } from "./types";
 import type {
+  ConnectionsSnapshot,
   HelperStatus,
   PlatformInfo,
   ProxyStatus,
@@ -10,6 +11,12 @@ import type {
   SystemProxyStatus,
   UserConfig,
 } from "./types";
+
+const EMPTY_CONNECTIONS_SNAPSHOT: ConnectionsSnapshot = {
+  downloadTotal: 0,
+  uploadTotal: 0,
+  connections: [],
+};
 
 export interface Toast {
   id: number;
@@ -25,6 +32,7 @@ interface AppStore {
   systemProxyStatus: SystemProxyStatus | null;
   platformInfo: PlatformInfo | null;
   helperStatus: HelperStatus | null;
+  connectionsSnapshot: ConnectionsSnapshot | null;
 
   configLoading: boolean;
   proxyBusy: boolean;
@@ -57,6 +65,10 @@ interface AppStore {
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
+
+  refreshConnections: () => Promise<void>;
+  closeConnection: (id: string) => Promise<void>;
+  closeAllConnections: () => Promise<void>;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -65,6 +77,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   systemProxyStatus: null,
   platformInfo: null,
   helperStatus: null,
+  connectionsSnapshot: null,
 
   configLoading: false,
   proxyBusy: false,
@@ -315,6 +328,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("error", `Failed to stop proxy: ${appErrorMessage(err)}`);
     } finally {
       set({ proxyBusy: false });
+    }
+  },
+
+  refreshConnections: async () => {
+    try {
+      const connectionsSnapshot = await ipc.connectionsList();
+      set({ connectionsSnapshot });
+    } catch {
+      // Routine whenever the proxy isn't running (proxy_not_running) --
+      // same treatment as refreshProxyStatus: fall back to an empty
+      // snapshot quietly rather than spamming a toast on every 2s poll.
+      set({ connectionsSnapshot: EMPTY_CONNECTIONS_SNAPSHOT });
+    }
+  },
+
+  closeConnection: async (id) => {
+    try {
+      await ipc.connectionsClose(id);
+      await get().refreshConnections();
+    } catch (err) {
+      get().pushToast("error", `Failed to close connection: ${appErrorMessage(err)}`);
+    }
+  },
+
+  closeAllConnections: async () => {
+    try {
+      await ipc.connectionsCloseAll();
+      await get().refreshConnections();
+    } catch (err) {
+      get().pushToast("error", `Failed to close all connections: ${appErrorMessage(err)}`);
     }
   },
 }));

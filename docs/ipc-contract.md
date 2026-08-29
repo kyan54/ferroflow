@@ -32,6 +32,9 @@ try {
 | `proxy_start` | `serverId: string` | `ProxyStatus` | looks up server, delegates to `core-manager` |
 | `proxy_stop` | — | `ProxyStatus` | delegates to `core-manager` |
 | `proxy_status` | — | `ProxyStatus` | delegates to `core-manager` |
+| `connections_list` | — | `ConnectionsSnapshot` | delegates to `core-manager`'s Clash API client; `proxy_not_running` if nothing is running |
+| `connections_close` | `id: string` | `()` | closes one connection by id |
+| `connections_close_all` | — | `()` | closes every current connection |
 | `system_proxy_status` | — | `SystemProxyStatus` | delegates to `net` |
 | `platform_info` | — | `PlatformInfo` | `is_admin`/`os_version` still stubbed to `false`/`""` |
 | `helper_get_status` | — | `HelperStatus` | pings the platform helper; `installed`/`ready` both `false` if unreachable |
@@ -157,21 +160,68 @@ previous all-or-nothing behavior — e.g. "domain suffix `.cn` goes direct" or
   the separately-deferred "rule-resources" feature (see below), not this
   one.
 
+## Live connections
+
+Every sing-box run now enables sing-box's own built-in Clash API
+(`experimental.clash_api.external_controller`, a well-documented, stable
+sing-box feature) on a second `127.0.0.1` port picked the same way as the
+local proxy inbound's port (`CoreManager::pick_local_port`) — in both
+`SystemProxy`/`Manual` mode (alongside the `mixed` inbound) and `Tun` mode
+(there's no local inbound to piggyback on there, but traffic visibility
+shouldn't depend on which inbound is active). `core_manager::clash_api` is a
+thin `reqwest` client for the three endpoints this app uses:
+
+- `GET /connections` → `ConnectionsSnapshot { downloadTotal, uploadTotal,
+  connections: ConnectionInfo[] }`
+- `DELETE /connections/{id}` → closes one connection
+- `DELETE /connections` → closes all of them
+
+`connections_list`/`connections_close`/`connections_close_all` delegate
+straight through to `CoreManager::list_connections`/`close_connection`/
+`close_all_connections`, which look up the current run's Clash API port and
+fail with `AppError{code:"proxy_not_running"}` if nothing is running, or
+`AppError{code:"clash_api_error"}` if the HTTP call itself fails. The
+frontend (`ConnectionsView.tsx`) polls `connections_list` every 2 seconds,
+same pattern as `DashboardView`'s `proxy_status` polling, and treats a
+`proxy_not_running` failure as "show an empty table" rather than a toast —
+that's the expected, common state whenever the proxy isn't running.
+
+**No auth.** The Clash API is enabled with no `secret` configured and bound
+to `127.0.0.1` only — any local process can query or close connections on
+that port while the proxy is running. This is a deliberate MVP
+simplification (loopback-only, no remote exposure), not an oversight;
+revisit if the local port is ever considered a meaningful attack surface
+(e.g. add a per-run random `secret` and pass it as a Bearer token once
+there's a reason to).
+
+**Totals are cumulative-since-start.** `downloadTotal`/`uploadTotal` (and
+each connection's own `upload`/`download`) are sing-box's own running
+totals since the process started — this app doesn't compute, reset, or
+window them itself. Stopping and restarting the proxy resets them to zero
+along with everything else, since it's a fresh sing-box process each time.
+
 ## Types (`crates/shared-types/src/lib.rs`)
 
 `Protocol` (Vless/Trojan/Shadowsocks/Vmess only for MVP — see file header),
 `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`, `UserConfig`,
 `RoutingRule`, `RuleMatchType`, `RuleOutbound`, `HelperStatus`,
-`SystemProxyStatus`, `PlatformInfo`, `AppError`/`AppResult`. Field names are
-`camelCase` on the wire (serde `rename_all`) to match the existing TS naming
-convention.
+`SystemProxyStatus`, `PlatformInfo`, `ConnectionMetadata`, `ConnectionInfo`,
+`ConnectionsSnapshot`, `AppError`/`AppResult`. Field names are `camelCase`
+on the wire (serde `rename_all`) to match the existing TS naming convention
+— with one deliberate exception: `ConnectionMetadata::destination_ip` is
+explicitly renamed to `destinationIP` (not the `camelCase`-derived
+`destinationIp`) to match sing-box's own Clash API wire field exactly, since
+a mismatch there would silently deserialize to an empty string rather than
+fail to compile.
 
 ## Deferred to phase 2 (do not build yet)
 
 WARP/WireGuard/Tailscale, rule-resources (GeoIP/GeoSite `.srs` rule-set
 *file* management/updates — distinct from the basic domain/IP/process
 `RoutingRule` matching already implemented, see "Routing rules" above),
-connection history, speed test, diagnostics/backup, sing-box dashboard
+persisted connection history (distinct from the live, in-memory connection
+list already implemented — see "Live connections" above), speed test,
+diagnostics/backup, sing-box dashboard
 embedding, window-chrome commands (Linux custom titlebar), native file
 dialogs. The Electron implementations of all of these are the reference for
 *behavior* once we get to them — see `FlowZ/src/main/services/` in the
