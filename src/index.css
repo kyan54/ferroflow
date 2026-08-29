@@ -1,12 +1,119 @@
+@import "./assets/fonts/fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light dark;
+/* Design tokens ported from the FlowZ Electron reference app's "Conduit"
+   design system (D:\code\AI\FlowZ\FlowZ\src\renderer\index.css), trimmed to
+   what ferroflow actually uses. HSL triplets consumed via Tailwind's
+   hsl(var(--x)) pattern -- see tailwind.config.js. */
+@layer base {
+  :root {
+    color-scheme: light dark;
+
+    /* Instrument-paper base + "flow" teal/cyan brand hue (~184°). Three-tier
+       text hierarchy (fg/fg-dim/fg-faint); layered surfaces for depth. */
+    --bg: 213 24% 96%;
+    --surface: 0 0% 100%;
+    --surface-2: 213 24% 93.5%;
+    --surface-3: 213 20% 89%;
+    --line: 214 20% 87.5%;
+    --hair: 214 22% 84%;
+    --fg: 216 28% 14%;
+    --fg-dim: 215 13% 40%;
+    --fg-faint: 214 12% 57%;
+
+    --flow: 184 60% 34%;
+    --flow-hi: 184 80% 28%;
+    --flow-weak: 185 50% 92%;
+
+    --ok: 158 62% 34%;
+    --ok-weak: 158 46% 92%;
+    --warn: 34 82% 42%;
+    --warn-weak: 38 82% 92%;
+    --err: 358 66% 50%;
+    --err-weak: 358 74% 96%;
+
+    /* Directional traffic colors (download/upload stats). */
+    --dn: 196 78% 41%;
+    --up: 256 46% 55%;
+
+    /* Protocol badge hues (Servers list protocol tags) -- a small trimmed
+       subset of the reference's full badge-hue palette. */
+    --badge-blue: 221.2 83.2% 53.3%;
+    --badge-purple: 271.5 81.3% 55.9%;
+    --badge-orange: 20.5 90.2% 48.2%;
+    --badge-teal: 174.7 83.9% 31.6%;
+    --badge-indigo: 243.4 75.4% 58.6%;
+
+    --border: var(--line);
+    --input: var(--line);
+    --ring: 184 78% 38%;
+    --radius: 0.5rem;
+  }
+
+  /* ferroflow follows the OS color-scheme preference (no in-app toggle),
+     mirroring its previous darkMode:"media" setup -- so this is a media
+     query, not a `.dark` class, unlike the reference app's own toggle. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      /* Blue-slate base + brighter flow teal for dark mode. */
+      --bg: 216 30% 8%;
+      --surface: 215 24% 11.5%;
+      --surface-2: 215 19% 15%;
+      --surface-3: 215 16% 20%;
+      --line: 215 15% 21%;
+      --hair: 215 14% 25%;
+      --fg: 210 20% 93%;
+      --fg-dim: 214 13% 64%;
+      --fg-faint: 214 11% 46%;
+
+      --flow: 184 50% 50%;
+      --flow-hi: 184 64% 60%;
+      --flow-weak: 200 34% 18%;
+
+      --ok: 158 54% 50%;
+      --ok-weak: 158 34% 15%;
+      --warn: 36 80% 59%;
+      --warn-weak: 34 40% 15%;
+      --err: 358 70% 66%;
+      --err-weak: 358 38% 18%;
+
+      --dn: 196 74% 58%;
+      --up: 256 56% 71%;
+
+      --badge-blue: 213.1 93.9% 67.8%;
+      --badge-purple: 270 95.2% 75.3%;
+      --badge-orange: 27 96% 61%;
+      --badge-teal: 172 66% 50%;
+      --badge-indigo: 234.5 89.5% 73.9%;
+
+      --border: var(--line);
+      --input: var(--line);
+      --ring: 184 64% 54%;
+    }
+  }
 }
 
-body {
-  @apply bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-slate-100;
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-fg antialiased;
+    font-family:
+      "IBM Plex Sans",
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      sans-serif;
+  }
 }

@@ -1,6 +1,17 @@
 import { useState } from "react";
 import { useAppStore } from "../store";
 import { ServerForm } from "../components/ServerForm";
+import { Card, CardHeader, CardTitle, CardContent, Button, Input, Badge } from "../components/ui";
+import type { BadgeVariant } from "../components/ui";
+import type { Protocol } from "../types";
+
+const PROTOCOL_BADGE: Record<Protocol, BadgeVariant> = {
+  vless: "vless",
+  vmess: "vmess",
+  trojan: "trojan",
+  shadowsocks: "shadowsocks",
+  wireguard: "wireguard",
+};
 
 function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
   const importSubscription = useAppStore((s) => s.importSubscription);
@@ -15,41 +26,34 @@ function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-4 rounded-xl bg-white p-5 shadow dark:bg-slate-800"
-    >
-      <h3 className="text-base font-semibold">Import from URL</h3>
+    <Card>
+      <form onSubmit={handleSubmit}>
+        <CardHeader>
+          <CardTitle>Import from URL</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 pt-4">
+          <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+            Subscription URL
+            <Input
+              required
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://provider.example.com/subscribe/abc123"
+            />
+          </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        Subscription URL
-        <input
-          required
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://provider.example.com/subscribe/abc123"
-          className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-        />
-      </label>
-
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={subscriptionBusy}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          Import
-        </button>
-      </div>
-    </form>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+            <Button type="submit" busy={subscriptionBusy}>
+              Import
+            </Button>
+          </div>
+        </CardContent>
+      </form>
+    </Card>
   );
 }
 
@@ -60,34 +64,32 @@ export function ServersView() {
   const warpBusy = useAppStore((s) => s.warpBusy);
   const [showForm, setShowForm] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const servers = config?.servers ?? [];
+
+  function handleDelete(id: string) {
+    if (pendingDeleteId === id) {
+      deleteServer(id);
+      setPendingDeleteId(null);
+    } else {
+      setPendingDeleteId(id);
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Servers</h2>
+        <h1 className="font-display text-xl font-semibold text-fg">Servers</h1>
         {!showForm && !showImportForm && (
           <div className="flex gap-2">
-            <button
-              onClick={() => registerWarp()}
-              disabled={warpBusy}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
+            <Button variant="outline" busy={warpBusy} onClick={() => registerWarp()}>
               {warpBusy ? "Registering…" : "Get Cloudflare WARP"}
-            </button>
-            <button
-              onClick={() => setShowImportForm(true)}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
+            </Button>
+            <Button variant="outline" onClick={() => setShowImportForm(true)}>
               Import from URL
-            </button>
-            <button
-              onClick={() => setShowForm(true)}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-            >
-              Add server
-            </button>
+            </Button>
+            <Button onClick={() => setShowForm(true)}>Add server</Button>
           </div>
         )}
       </div>
@@ -96,29 +98,37 @@ export function ServersView() {
       {showImportForm && <SubscriptionImportForm onDone={() => setShowImportForm(false)} />}
 
       {servers.length === 0 ? (
-        <p className="rounded-xl bg-white p-5 text-sm text-slate-500 shadow dark:bg-slate-800 dark:text-slate-400">
-          No servers yet. Add one to get started.
-        </p>
+        <Card>
+          <CardContent className="text-sm text-fg-faint">
+            No servers yet. Add one to get started, or import from a subscription URL.
+          </CardContent>
+        </Card>
       ) : (
         <ul className="flex flex-col gap-2">
           {servers.map((server) => (
-            <li
-              key={server.id}
-              className="flex items-center justify-between rounded-xl bg-white p-4 shadow dark:bg-slate-800"
-            >
-              <div>
-                <p className="font-medium">{server.name}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {server.protocol} · {server.address}:{server.port}
-                  {server.tls?.enabled ? " · TLS" : ""}
-                </p>
-              </div>
-              <button
-                onClick={() => deleteServer(server.id)}
-                className="rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
-              >
-                Delete
-              </button>
+            <li key={server.id}>
+              <Card>
+                <CardContent className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-fg">{server.name}</p>
+                      <Badge variant={PROTOCOL_BADGE[server.protocol]}>{server.protocol}</Badge>
+                      {server.tls?.enabled && <Badge variant="secondary">TLS</Badge>}
+                    </div>
+                    <p className="mt-0.5 truncate font-mono text-sm text-fg-faint">
+                      {server.address}:{server.port}
+                    </p>
+                  </div>
+                  <Button
+                    variant={pendingDeleteId === server.id ? "destructive" : "ghost"}
+                    size="sm"
+                    onClick={() => handleDelete(server.id)}
+                    onBlur={() => setPendingDeleteId(null)}
+                  >
+                    {pendingDeleteId === server.id ? "Confirm delete?" : "Delete"}
+                  </Button>
+                </CardContent>
+              </Card>
             </li>
           ))}
         </ul>

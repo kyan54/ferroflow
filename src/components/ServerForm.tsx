@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAppStore } from "../store";
 import { PROTOCOLS } from "../types";
 import type { Protocol, ServerConfig } from "../types";
+import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Toggle } from "./ui";
 
 const PROTOCOL_FIELDS: Record<Protocol, { uuid: boolean; password: boolean; encryption: boolean; flow: boolean }> = {
   vless: { uuid: true, password: false, encryption: true, flow: true },
@@ -95,224 +96,168 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-4 rounded-xl bg-white p-5 shadow dark:bg-slate-800"
-    >
-      <h3 className="text-base font-semibold">Add server</h3>
+    <Card>
+      <form onSubmit={handleSubmit}>
+        <CardHeader>
+          <CardTitle>Add server</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 pt-4">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+              Name
+              <Input required value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          Name
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-          />
-        </label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+              Protocol
+              <Select value={protocol} onChange={(e) => setProtocol(e.target.value as Protocol)}>
+                {PROTOCOLS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </Select>
+            </label>
 
-        <label className="flex flex-col gap-1 text-sm">
-          Protocol
-          <select
-            value={protocol}
-            onChange={(e) => setProtocol(e.target.value as Protocol)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-          >
-            {PROTOCOLS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          Address
-          <input
-            required
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="example.com"
-            className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          Port
-          <input
-            required
-            type="number"
-            min={1}
-            max={65535}
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-          />
-        </label>
-
-        {fields.uuid && (
-          <label className="flex flex-col gap-1 text-sm">
-            UUID
-            <input
-              value={uuid}
-              onChange={(e) => setUuid(e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-            />
-          </label>
-        )}
-
-        {fields.password && (
-          <label className="flex flex-col gap-1 text-sm">
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-            />
-          </label>
-        )}
-
-        {fields.encryption && (
-          <label className="flex flex-col gap-1 text-sm">
-            {protocol === "shadowsocks" ? "Cipher" : "Encryption"}
-            <input
-              value={encryption}
-              onChange={(e) => setEncryption(e.target.value)}
-              placeholder={protocol === "shadowsocks" ? "aes-256-gcm" : "auto"}
-              className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-            />
-          </label>
-        )}
-
-        {fields.flow && (
-          <label className="flex flex-col gap-1 text-sm">
-            Flow
-            <input
-              value={flow}
-              onChange={(e) => setFlow(e.target.value)}
-              placeholder="xtls-rprx-vision"
-              className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-            />
-          </label>
-        )}
-
-        {isWireguard && (
-          <>
-            <label className="flex flex-col gap-1 text-sm">
-              Private key
-              <input
-                value={wireguardPrivateKey}
-                onChange={(e) => setWireguardPrivateKey(e.target.value)}
-                placeholder="base64 32-byte key"
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+            <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+              Address
+              <Input
+                required
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="example.com"
               />
             </label>
 
-            <label className="flex flex-col gap-1 text-sm">
-              Peer public key
-              <input
-                value={wireguardPeerPublicKey}
-                onChange={(e) => setWireguardPeerPublicKey(e.target.value)}
-                placeholder="base64 32-byte key"
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+            <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+              Port
+              <Input
+                required
+                type="number"
+                min={1}
+                max={65535}
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
               />
             </label>
 
-            <label className="flex flex-col gap-1 text-sm">
-              Pre-shared key (optional)
-              <input
-                value={wireguardPreSharedKey}
-                onChange={(e) => setWireguardPreSharedKey(e.target.value)}
-                placeholder="base64 32-byte key"
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-              />
-            </label>
+            {fields.uuid && (
+              <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                UUID
+                <Input value={uuid} onChange={(e) => setUuid(e.target.value)} />
+              </label>
+            )}
 
-            <label className="flex flex-col gap-1 text-sm">
-              Local address
-              <input
-                value={wireguardLocalAddress}
-                onChange={(e) => setWireguardLocalAddress(e.target.value)}
-                placeholder="10.0.0.2/32"
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-              />
-            </label>
-          </>
-        )}
-      </div>
+            {fields.password && (
+              <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                Password
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </label>
+            )}
 
-      {showTls && (
-        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium">TLS</legend>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={tlsEnabled}
-              onChange={(e) => setTlsEnabled(e.target.checked)}
-            />
-            Enabled
-          </label>
-
-          {tlsEnabled && (
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-sm">
-                Server name (SNI)
-                <input
-                  value={serverName}
-                  onChange={(e) => setServerName(e.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+            {fields.encryption && (
+              <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                {protocol === "shadowsocks" ? "Cipher" : "Encryption"}
+                <Input
+                  value={encryption}
+                  onChange={(e) => setEncryption(e.target.value)}
+                  placeholder={protocol === "shadowsocks" ? "aes-256-gcm" : "auto"}
                 />
               </label>
+            )}
 
-              <label className="mt-6 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={insecure}
-                  onChange={(e) => setInsecure(e.target.checked)}
-                />
-                Allow insecure (skip cert verify)
-              </label>
-
-              <label className="flex flex-col gap-1 text-sm">
-                Reality public key
-                <input
-                  value={realityPublicKey}
-                  onChange={(e) => setRealityPublicKey(e.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+            {fields.flow && (
+              <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                Flow
+                <Input
+                  value={flow}
+                  onChange={(e) => setFlow(e.target.value)}
+                  placeholder="xtls-rprx-vision"
                 />
               </label>
+            )}
 
-              <label className="flex flex-col gap-1 text-sm">
-                Reality short ID
-                <input
-                  value={realityShortId}
-                  onChange={(e) => setRealityShortId(e.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-                />
-              </label>
-            </div>
+            {isWireguard && (
+              <>
+                <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                  Private key
+                  <Input
+                    value={wireguardPrivateKey}
+                    onChange={(e) => setWireguardPrivateKey(e.target.value)}
+                    placeholder="base64 32-byte key"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                  Peer public key
+                  <Input
+                    value={wireguardPeerPublicKey}
+                    onChange={(e) => setWireguardPeerPublicKey(e.target.value)}
+                    placeholder="base64 32-byte key"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                  Pre-shared key (optional)
+                  <Input
+                    value={wireguardPreSharedKey}
+                    onChange={(e) => setWireguardPreSharedKey(e.target.value)}
+                    placeholder="base64 32-byte key"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                  Local address
+                  <Input
+                    value={wireguardLocalAddress}
+                    onChange={(e) => setWireguardLocalAddress(e.target.value)}
+                    placeholder="10.0.0.2/32"
+                  />
+                </label>
+              </>
+            )}
+          </div>
+
+          {showTls && (
+            <fieldset className="rounded-lg border border-line p-3">
+              <legend className="px-1 text-sm font-medium text-fg-dim">TLS</legend>
+              <Toggle checked={tlsEnabled} onChange={setTlsEnabled} label="Enabled" />
+
+              {tlsEnabled && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                    Server name (SNI)
+                    <Input value={serverName} onChange={(e) => setServerName(e.target.value)} />
+                  </label>
+
+                  <div className="flex items-end pb-1.5">
+                    <Toggle checked={insecure} onChange={setInsecure} label="Allow insecure (skip cert verify)" />
+                  </div>
+
+                  <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                    Reality public key
+                    <Input value={realityPublicKey} onChange={(e) => setRealityPublicKey(e.target.value)} />
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+                    Reality short ID
+                    <Input value={realityShortId} onChange={(e) => setRealityShortId(e.target.value)} />
+                  </label>
+                </div>
+              )}
+            </fieldset>
           )}
-        </fieldset>
-      )}
 
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          Add server
-        </button>
-      </div>
-    </form>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+            <Button type="submit" busy={submitting}>
+              Add server
+            </Button>
+          </div>
+        </CardContent>
+      </form>
+    </Card>
   );
 }

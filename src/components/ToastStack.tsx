@@ -1,9 +1,9 @@
 import { useAppStore } from "../store";
 
 const KIND_STYLES: Record<string, string> = {
-  info: "bg-slate-800 text-slate-100",
-  error: "bg-red-600 text-white",
-  success: "bg-emerald-600 text-white",
+  info: "bg-surface-3 text-fg border border-line",
+  error: "bg-err text-white",
+  success: "bg-ok text-white",
 };
 
 export function ToastStack() {

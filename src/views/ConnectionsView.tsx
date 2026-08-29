@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useAppStore } from "../store";
 import type { ConnectionMetadata, HistoryEntry } from "../types";
+import { Card, CardHeader, CardTitle, CardContent, Button } from "../components/ui";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -45,142 +46,124 @@ export function ConnectionsView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
-      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Connections</h2>
+      <h1 className="font-display text-xl font-semibold text-fg">Connections</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Active connections</CardTitle>
           <div className="flex items-center gap-3">
-            <button
-              onClick={refreshConnections}
-              className="text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-            >
+            <Button variant="ghost" size="sm" onClick={refreshConnections}>
               Refresh
-            </button>
-            <button
-              onClick={closeAllConnections}
-              disabled={connections.length === 0}
-              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="destructive" size="sm" disabled={connections.length === 0} onClick={closeAllConnections}>
               Close all
-            </button>
+            </Button>
           </div>
-        </div>
+        </CardHeader>
 
-        <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
-          <dt className="text-slate-500 dark:text-slate-400">Total downloaded</dt>
-          <dd>{formatBytes(connectionsSnapshot?.downloadTotal ?? 0)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Total uploaded</dt>
-          <dd>{formatBytes(connectionsSnapshot?.uploadTotal ?? 0)}</dd>
-        </dl>
+        <CardContent className="pt-4">
+          <dl className="grid grid-cols-2 gap-y-2 text-sm">
+            <dt className="text-fg-faint">Total downloaded</dt>
+            <dd className="font-mono text-dn">{formatBytes(connectionsSnapshot?.downloadTotal ?? 0)}</dd>
+            <dt className="text-fg-faint">Total uploaded</dt>
+            <dd className="font-mono text-up">{formatBytes(connectionsSnapshot?.uploadTotal ?? 0)}</dd>
+          </dl>
 
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                <th className="py-2 pr-3 font-medium">Destination</th>
-                <th className="py-2 pr-3 font-medium">Network</th>
-                <th className="py-2 pr-3 font-medium">Chain</th>
-                <th className="py-2 pr-3 font-medium">Rule</th>
-                <th className="py-2 pr-3 font-medium">Download</th>
-                <th className="py-2 pr-3 font-medium">Upload</th>
-                <th className="py-2 pr-3 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {connections.map((conn) => (
-                <tr
-                  key={conn.id}
-                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
-                >
-                  <td className="py-2 pr-3">{destinationLabel(conn.metadata)}</td>
-                  <td className="py-2 pr-3 uppercase">{conn.metadata.network}</td>
-                  <td className="py-2 pr-3">{conn.chains.join(" → ")}</td>
-                  <td className="py-2 pr-3">{conn.rule || "—"}</td>
-                  <td className="py-2 pr-3">{formatBytes(conn.download)}</td>
-                  <td className="py-2 pr-3">{formatBytes(conn.upload)}</td>
-                  <td className="py-2 pr-3 text-right">
-                    <button
-                      onClick={() => closeConnection(conn.id)}
-                      className="text-xs text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400"
-                    >
-                      Close
-                    </button>
-                  </td>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-fg-faint">
+                  <th className="py-2 pr-3 font-medium">Destination</th>
+                  <th className="py-2 pr-3 font-medium">Network</th>
+                  <th className="py-2 pr-3 font-medium">Chain</th>
+                  <th className="py-2 pr-3 font-medium">Rule</th>
+                  <th className="py-2 pr-3 font-medium">Download</th>
+                  <th className="py-2 pr-3 font-medium">Upload</th>
+                  <th className="py-2 pr-3 font-medium"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {connections.map((conn) => (
+                  <tr key={conn.id} className="border-b border-line/60 last:border-0">
+                    <td className="py-2 pr-3 font-mono text-fg">{destinationLabel(conn.metadata)}</td>
+                    <td className="py-2 pr-3 uppercase text-fg-dim">{conn.metadata.network}</td>
+                    <td className="py-2 pr-3 text-fg-dim">{conn.chains.join(" → ")}</td>
+                    <td className="py-2 pr-3 text-fg-dim">{conn.rule || "—"}</td>
+                    <td className="py-2 pr-3 font-mono text-dn">{formatBytes(conn.download)}</td>
+                    <td className="py-2 pr-3 font-mono text-up">{formatBytes(conn.upload)}</td>
+                    <td className="py-2 pr-3 text-right">
+                      <button
+                        onClick={() => closeConnection(conn.id)}
+                        className="text-xs text-fg-faint hover:text-err"
+                      >
+                        Close
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-          {connections.length === 0 && (
-            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-              No active connections.
-            </p>
-          )}
-        </div>
-      </section>
+            {connections.length === 0 && (
+              <p className="mt-3 text-sm text-fg-faint">No active connections.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">History</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>History</CardTitle>
           <div className="flex items-center gap-3">
-            <button
-              onClick={refreshHistory}
-              className="text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-            >
+            <Button variant="ghost" size="sm" onClick={refreshHistory}>
               Refresh
-            </button>
-            <button
-              onClick={clearHistory}
-              disabled={historyEntries.length === 0}
-              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="destructive" size="sm" disabled={historyEntries.length === 0} onClick={clearHistory}>
               Clear history
-            </button>
+            </Button>
           </div>
-        </div>
+        </CardHeader>
 
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          A look-back at connections that have finished, not a live view -- use Refresh to pull the
-          latest. Only recorded when "Record connection history" is turned on in Settings.
-        </p>
+        <CardContent className="pt-4">
+          <p className="-mt-2 mb-3 text-sm text-fg-faint">
+            A look-back at connections that have finished, not a live view — use Refresh to pull the
+            latest. Only recorded when "Record connection history" is turned on in Settings.
+          </p>
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                <th className="py-2 pr-3 font-medium">Destination</th>
-                <th className="py-2 pr-3 font-medium">Network</th>
-                <th className="py-2 pr-3 font-medium">Chain</th>
-                <th className="py-2 pr-3 font-medium">Rule</th>
-                <th className="py-2 pr-3 font-medium">Download</th>
-                <th className="py-2 pr-3 font-medium">Upload</th>
-                <th className="py-2 pr-3 font-medium">Ended</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historyEntries.map((entry: HistoryEntry) => (
-                <tr
-                  key={entry.id}
-                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
-                >
-                  <td className="py-2 pr-3">{destinationLabel(entry.metadata)}</td>
-                  <td className="py-2 pr-3 uppercase">{entry.metadata.network}</td>
-                  <td className="py-2 pr-3">{entry.chains.join(" → ")}</td>
-                  <td className="py-2 pr-3">{entry.rule || "—"}</td>
-                  <td className="py-2 pr-3">{formatBytes(entry.download)}</td>
-                  <td className="py-2 pr-3">{formatBytes(entry.upload)}</td>
-                  <td className="py-2 pr-3">{new Date(entry.end).toLocaleString()}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-fg-faint">
+                  <th className="py-2 pr-3 font-medium">Destination</th>
+                  <th className="py-2 pr-3 font-medium">Network</th>
+                  <th className="py-2 pr-3 font-medium">Chain</th>
+                  <th className="py-2 pr-3 font-medium">Rule</th>
+                  <th className="py-2 pr-3 font-medium">Download</th>
+                  <th className="py-2 pr-3 font-medium">Upload</th>
+                  <th className="py-2 pr-3 font-medium">Ended</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {historyEntries.map((entry: HistoryEntry) => (
+                  <tr key={entry.id} className="border-b border-line/60 last:border-0">
+                    <td className="py-2 pr-3 font-mono text-fg">{destinationLabel(entry.metadata)}</td>
+                    <td className="py-2 pr-3 uppercase text-fg-dim">{entry.metadata.network}</td>
+                    <td className="py-2 pr-3 text-fg-dim">{entry.chains.join(" → ")}</td>
+                    <td className="py-2 pr-3 text-fg-dim">{entry.rule || "—"}</td>
+                    <td className="py-2 pr-3 font-mono text-dn">{formatBytes(entry.download)}</td>
+                    <td className="py-2 pr-3 font-mono text-up">{formatBytes(entry.upload)}</td>
+                    <td className="py-2 pr-3 text-fg-dim">{new Date(entry.end).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-          {historyEntries.length === 0 && (
-            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-              No connection history yet.
-            </p>
-          )}
-        </div>
-      </section>
+            {historyEntries.length === 0 && (
+              <p className="mt-3 text-sm text-fg-faint">No connection history yet.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

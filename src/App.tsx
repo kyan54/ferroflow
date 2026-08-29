@@ -18,9 +18,9 @@ function App() {
   }, [refreshConfig]);
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
+    <div className="flex h-screen w-full overflow-hidden bg-background text-fg">
       <Nav active={view} onChange={setView} />
-      <main className="bg-white dark:bg-slate-800/40">
+      <main className="min-w-0 flex-1 overflow-y-auto">
         {view === "dashboard" && <DashboardView />}
         {view === "servers" && <ServersView />}
         {view === "rules" && <RulesView />}

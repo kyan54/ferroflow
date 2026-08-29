@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../store";
 import { PROXY_MODES, PROXY_MODE_TYPES } from "../types";
 import type { ProxyMode, ProxyModeType } from "../types";
+import { Card, CardHeader, CardTitle, CardContent, Button, Select, Toggle } from "../components/ui";
 
 export function SettingsView() {
   const config = useAppStore((s) => s.config);
@@ -17,13 +18,17 @@ export function SettingsView() {
   const importBackup = useAppStore((s) => s.importBackup);
   const exportDiagnostic = useAppStore((s) => s.exportDiagnostic);
 
+  const [pendingUninstall, setPendingUninstall] = useState(false);
+
   useEffect(() => {
     refreshPlatformInfo();
     refreshHelperStatus();
   }, [refreshPlatformInfo, refreshHelperStatus]);
 
   if (!config) {
-    return <div className="p-6 text-sm text-slate-500 dark:text-slate-400">Loading…</div>;
+    return (
+      <div className="mx-auto max-w-2xl p-6 text-sm text-fg-faint">Loading…</div>
+    );
   }
 
   function toggle(key: "autoStart" | "minimizeToTray" | "connectionHistoryEnabled") {
@@ -41,173 +46,171 @@ export function SettingsView() {
     saveConfig({ ...config, proxyModeType: modeType });
   }
 
+  function handleUninstall() {
+    if (pendingUninstall) {
+      uninstallHelper();
+      setPendingUninstall(false);
+    } else {
+      setPendingUninstall(true);
+    }
+  }
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
-      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
-        <h2 className="text-lg font-semibold">Platform</h2>
-        {platformInfo ? (
-          <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-slate-500 dark:text-slate-400">OS</dt>
-            <dd>{platformInfo.platform}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Architecture</dt>
-            <dd>{platformInfo.arch}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">OS version</dt>
-            <dd>{platformInfo.osVersion || "—"}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Running as admin</dt>
-            <dd>{platformInfo.isAdmin ? "Yes" : "No"}</dd>
-          </dl>
-        ) : (
-          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">Loading…</p>
-        )}
-      </section>
+      <h1 className="font-display text-xl font-semibold text-fg">Settings</h1>
 
-      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
-        <h2 className="text-lg font-semibold">Behavior</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Platform</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {platformInfo ? (
+            <dl className="grid grid-cols-2 gap-y-2 text-sm">
+              <dt className="text-fg-faint">OS</dt>
+              <dd className="text-fg-dim">{platformInfo.platform}</dd>
+              <dt className="text-fg-faint">Architecture</dt>
+              <dd className="text-fg-dim">{platformInfo.arch}</dd>
+              <dt className="text-fg-faint">OS version</dt>
+              <dd className="text-fg-dim">{platformInfo.osVersion || "—"}</dd>
+              <dt className="text-fg-faint">Running as admin</dt>
+              <dd className="text-fg-dim">{platformInfo.isAdmin ? "Yes" : "No"}</dd>
+            </dl>
+          ) : (
+            <p className="text-sm text-fg-faint">Loading…</p>
+          )}
+        </CardContent>
+      </Card>
 
-        <label className="mt-4 flex items-center justify-between text-sm">
-          <span>Start automatically on login</span>
-          <input
-            type="checkbox"
+      <Card>
+        <CardHeader>
+          <CardTitle>Behavior</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 pt-4">
+          <Toggle
             checked={config.autoStart}
             onChange={() => toggle("autoStart")}
+            label="Start automatically on login"
           />
-        </label>
-
-        <label className="mt-3 flex items-center justify-between text-sm">
-          <span>Minimize to tray on close</span>
-          <input
-            type="checkbox"
+          <Toggle
             checked={config.minimizeToTray}
             onChange={() => toggle("minimizeToTray")}
+            label="Minimize to tray on close"
           />
-        </label>
+          <div>
+            <Toggle
+              checked={config.connectionHistoryEnabled}
+              onChange={() => toggle("connectionHistoryEnabled")}
+              label="Record connection history"
+            />
+            <p className="mt-1 text-xs text-fg-faint">
+              Off by default. Only applies the next time the proxy starts -- toggling this while
+              already connected does not retroactively record the current session. Recorded
+              locally as plain, unencrypted JSON, capped at the most recent 1000 finished
+              connections.
+            </p>
+          </div>
 
-        <label className="mt-3 flex items-center justify-between text-sm">
-          <span>Record connection history</span>
-          <input
-            type="checkbox"
-            checked={config.connectionHistoryEnabled}
-            onChange={() => toggle("connectionHistoryEnabled")}
-          />
-        </label>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Off by default. Only applies the next time the proxy starts -- toggling this while
-          already connected does not retroactively record the current session. Recorded locally as
-          plain, unencrypted JSON, capped at the most recent 1000 finished connections.
-        </p>
-
-        <div className="mt-4">
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="mt-2 flex flex-col gap-1 text-sm font-medium text-fg-dim">
             Proxy mode
-            <select
+            <Select
               value={config.proxyMode}
               onChange={(e) => setProxyMode(e.target.value as ProxyMode)}
-              className="w-48 rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+              className="w-48"
             >
               {PROXY_MODES.map((mode) => (
                 <option key={mode} value={mode}>
                   {mode}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
-        </div>
 
-        <div className="mt-4">
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
             Takeover mode
-            <select
+            <Select
               value={config.proxyModeType}
               onChange={(e) => setProxyModeType(e.target.value as ProxyModeType)}
-              className="w-48 rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+              className="w-48"
             >
               {PROXY_MODE_TYPES.map((modeType) => (
                 <option key={modeType} value={modeType}>
                   {modeType}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {config.proxyModeType === "tun" && !helperStatus?.ready && (
-            <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+            <p className="text-sm text-warn">
               TUN mode needs the privileged helper installed (see below) — starting the proxy
               without it will fail.
             </p>
           )}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
-        <h2 className="text-lg font-semibold">Privileged helper</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Required for TUN mode. Installed once with a single admin prompt; after that, starting
-          and stopping the proxy never prompts again.
-        </p>
+      <Card>
+        <CardHeader>
+          <CardTitle>Privileged helper</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <p className="text-sm text-fg-faint">
+            Required for TUN mode. Installed once with a single admin prompt; after that, starting
+            and stopping the proxy never prompts again.
+          </p>
 
-        {helperStatus ? (
-          <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-slate-500 dark:text-slate-400">Status</dt>
-            <dd>{helperStatus.ready ? "Installed and running" : "Not installed"}</dd>
-            {helperStatus.version && (
-              <>
-                <dt className="text-slate-500 dark:text-slate-400">Version</dt>
-                <dd>{helperStatus.version}</dd>
-              </>
-            )}
-          </dl>
-        ) : (
-          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">Checking…</p>
-        )}
-
-        <div className="mt-4 flex gap-2">
-          {!helperStatus?.ready ? (
-            <button
-              onClick={() => installHelper()}
-              disabled={helperBusy}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {helperBusy ? "Installing…" : "Install helper"}
-            </button>
+          {helperStatus ? (
+            <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
+              <dt className="text-fg-faint">Status</dt>
+              <dd className="text-fg-dim">{helperStatus.ready ? "Installed and running" : "Not installed"}</dd>
+              {helperStatus.version && (
+                <>
+                  <dt className="text-fg-faint">Version</dt>
+                  <dd className="text-fg-dim">{helperStatus.version}</dd>
+                </>
+              )}
+            </dl>
           ) : (
-            <button
-              onClick={() => uninstallHelper()}
-              disabled={helperBusy}
-              className="rounded-md px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950"
-            >
-              {helperBusy ? "Removing…" : "Remove helper"}
-            </button>
+            <p className="mt-4 text-sm text-fg-faint">Checking…</p>
           )}
-        </div>
-      </section>
 
-      <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">
-        <h2 className="text-lg font-semibold">Backup & diagnostics</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Back up your servers, rules, and settings to a file you can move to another machine, or
-          export a redacted diagnostic report safe to paste into a bug report.
-        </p>
+          <div className="mt-4 flex gap-2">
+            {!helperStatus?.ready ? (
+              <Button busy={helperBusy} onClick={() => installHelper()}>
+                {helperBusy ? "Installing…" : "Install helper"}
+              </Button>
+            ) : (
+              <Button
+                variant="destructive"
+                busy={helperBusy}
+                onClick={handleUninstall}
+                onBlur={() => setPendingUninstall(false)}
+              >
+                {helperBusy ? "Removing…" : pendingUninstall ? "Confirm remove?" : "Remove helper"}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={() => exportBackup()}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            Export backup
-          </button>
-          <button
-            onClick={() => importBackup()}
-            className="rounded-md px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950"
-          >
-            Import backup
-          </button>
-          <button
-            onClick={() => exportDiagnostic()}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            Export diagnostic report
-          </button>
-        </div>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Backup & diagnostics</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <p className="text-sm text-fg-faint">
+            Back up your servers, rules, and settings to a file you can move to another machine, or
+            export a redacted diagnostic report safe to paste into a bug report.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => exportBackup()}>Export backup</Button>
+            <Button variant="outline" onClick={() => importBackup()}>
+              Import backup
+            </Button>
+            <Button onClick={() => exportDiagnostic()}>Export diagnostic report</Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
