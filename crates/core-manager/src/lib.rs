@@ -20,7 +20,9 @@ use std::sync::Mutex as StdMutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use helper_client::HelperClient;
-use shared_types::{AppError, AppResult, ProxyErrorCode, ProxyModeType, ProxyStatus, ServerConfig};
+use shared_types::{
+    AppError, AppResult, ProxyErrorCode, ProxyModeType, ProxyStatus, RoutingRule, ServerConfig,
+};
 use tokio::sync::Mutex;
 
 use process::ProcessHandle;
@@ -128,7 +130,17 @@ impl CoreManager {
     /// If a core is already running under either backend (e.g. switching
     /// servers or modes), it's stopped first rather than leaking a second
     /// process/helper-managed run.
-    pub async fn start(&self, server: &ServerConfig, mode_type: ProxyModeType) -> AppResult<ProxyStatus> {
+    ///
+    /// `rules` is the caller's current `UserConfig.rules` list, threaded
+    /// straight through to `config::build_config`/`build_tun_config` — see
+    /// `config::build_route_rules` for how disabled/empty-values rules are
+    /// filtered out and mapped to sing-box `route.rules` entries.
+    pub async fn start(
+        &self,
+        server: &ServerConfig,
+        mode_type: ProxyModeType,
+        rules: &[RoutingRule],
+    ) -> AppResult<ProxyStatus> {
         let mut guard = self.running.lock().await;
 
         if let Some(existing) = guard.take() {
@@ -141,7 +153,7 @@ impl CoreManager {
                     AppError::new("port_in_use", format!("failed to allocate a local proxy port: {e}"))
                 })?;
 
-                let cfg = config::build_config(server, port);
+                let cfg = config::build_config(server, port, rules);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -189,7 +201,7 @@ impl CoreManager {
                     ));
                 }
 
-                let cfg = config::build_tun_config(server);
+                let cfg = config::build_tun_config(server, rules);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -423,7 +435,7 @@ mod tests {
     async fn start_with_missing_binary_returns_core_start_failed() {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::SystemProxy).await.unwrap_err();
+        let err = manager.start(&server, ProxyModeType::SystemProxy, &[]).await.unwrap_err();
         assert_eq!(err.code, "core_start_failed");
     }
 
@@ -435,7 +447,7 @@ mod tests {
         // this test environment) and mask a routing bug.
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::Manual).await.unwrap_err();
+        let err = manager.start(&server, ProxyModeType::Manual, &[]).await.unwrap_err();
         assert_eq!(err.code, "core_start_failed");
     }
 
@@ -449,7 +461,7 @@ mod tests {
         // create a TUN interface).
         let manager = CoreManager::with_binary_path("does-not-matter-for-this-path");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::Tun).await.unwrap_err();
+        let err = manager.start(&server, ProxyModeType::Tun, &[]).await.unwrap_err();
         assert_eq!(err.code, "helper_unavailable");
     }
 
@@ -482,7 +494,7 @@ mod tests {
         let server = test_server();
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy)
+            .start(&server, ProxyModeType::SystemProxy, &[])
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);

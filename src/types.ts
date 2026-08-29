@@ -52,8 +52,31 @@ export interface ProxyStatus {
   currentServerId?: string | null;
 }
 
+export type RuleMatchType = "domain" | "domainSuffix" | "domainKeyword" | "ipCidr" | "processName";
+export const RULE_MATCH_TYPES: RuleMatchType[] = [
+  "domain",
+  "domainSuffix",
+  "domainKeyword",
+  "ipCidr",
+  "processName",
+];
+
+export type RuleOutbound = "proxy" | "direct" | "block";
+export const RULE_OUTBOUNDS: RuleOutbound[] = ["proxy", "direct", "block"];
+
+export interface RoutingRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  matchType: RuleMatchType;
+  /** One or more raw match values (domains/suffixes/keywords/CIDRs/process names depending on `matchType`). */
+  values: string[];
+  outbound: RuleOutbound;
+}
+
 export interface UserConfig {
   servers: ServerConfig[];
+  rules: RoutingRule[];
   selectedServerId?: string | null;
   proxyMode: ProxyMode;
   proxyModeType: ProxyModeType;

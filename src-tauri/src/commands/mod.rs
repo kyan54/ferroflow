@@ -7,5 +7,6 @@ pub mod helper_macos;
 #[cfg(target_os = "linux")]
 pub mod helper_linux;
 pub mod proxy;
+pub mod rules;
 pub mod subscription;
 pub mod system;

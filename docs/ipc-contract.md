@@ -25,6 +25,10 @@ try {
 | `config_save` | `config: UserConfig` | `()` | overwrites + persists |
 | `servers_add` | `server: ServerConfig` | `UserConfig` | appends, persists, returns full config |
 | `servers_delete` | `id: string` | `UserConfig` | removes, clears `selectedServerId` if it matched |
+| `rules_add` | `rule: RoutingRule` | `UserConfig` | appends, persists, returns full config |
+| `rules_update` | `rule: RoutingRule` | `UserConfig` | replaces the rule with a matching `id`; no-op (current config unchanged) if the id isn't found |
+| `rules_delete` | `id: string` | `UserConfig` | removes the rule with that id |
+| `rules_reorder` | `orderedIds: string[]` | `UserConfig` | re-sorts `rules` to match `orderedIds`; ids not present in the running config are ignored, existing rules not named in `orderedIds` are appended after, keeping their relative order — call with the full current id list in a new order, not a partial reorder |
 | `proxy_start` | `serverId: string` | `ProxyStatus` | looks up server, delegates to `core-manager` |
 | `proxy_stop` | — | `ProxyStatus` | delegates to `core-manager` |
 | `proxy_status` | — | `ProxyStatus` | delegates to `core-manager` |
@@ -114,19 +118,61 @@ provider's URL, an update timestamp, ...) to dedupe against yet. Fine for a
 one-shot "paste a URL, get servers" MVP flow; revisit once there's a UI for
 managing/refreshing a named subscription rather than importing once.
 
+## Routing rules
+
+`UserConfig.rules: RoutingRule[]` lets a user route selected traffic
+differently from the "everything through the proxy" default, instead of the
+previous all-or-nothing behavior — e.g. "domain suffix `.cn` goes direct" or
+"this IP range is blocked". Each `RoutingRule` is:
+
+```ts
+{
+  id: string;
+  name: string;
+  enabled: boolean;
+  matchType: "domain" | "domainSuffix" | "domainKeyword" | "ipCidr" | "processName";
+  values: string[];   // one or more raw match values for matchType
+  outbound: "proxy" | "direct" | "block";
+}
+```
+
+- **One match field per rule.** Each rule sets exactly one of the five
+  match types against its `values` — there's no support for compound
+  conditions (e.g. "this domain AND this process") in this pass.
+- **Evaluation order.** `core_manager::config::build_route_rules` maps
+  enabled rules with at least one value into a sing-box `route.rules` array,
+  preserving list order. sing-box evaluates `route.rules` top to bottom and
+  stops at the first match; `route.final` (already present, pointed at the
+  proxy outbound) is the fallback when no rule matches. Reordering rules in
+  the UI (`rules_reorder`) therefore changes routing behavior, not just
+  display order — put more specific rules above more general ones.
+- **Disabled/empty rules are skipped**, not written into the config at all
+  — toggling a rule off is equivalent to deleting it from sing-box's point
+  of view, without losing its definition in `UserConfig`.
+- **`block` outbound.** A `block`-type sing-box outbound is only added to
+  the generated config when at least one enabled rule actually references
+  it, to avoid emitting an outbound nothing points at.
+- **Scope**: domain (exact/suffix/keyword), IP CIDR, and process-name
+  matching only — no GeoIP/GeoSite `.srs` rule-set file references. That's
+  the separately-deferred "rule-resources" feature (see below), not this
+  one.
+
 ## Types (`crates/shared-types/src/lib.rs`)
 
 `Protocol` (Vless/Trojan/Shadowsocks/Vmess only for MVP — see file header),
 `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`, `UserConfig`,
-`HelperStatus`, `SystemProxyStatus`, `PlatformInfo`, `AppError`/`AppResult`.
-Field names are `camelCase` on the wire (serde `rename_all`) to match the
-existing TS naming convention.
+`RoutingRule`, `RuleMatchType`, `RuleOutbound`, `HelperStatus`,
+`SystemProxyStatus`, `PlatformInfo`, `AppError`/`AppResult`. Field names are
+`camelCase` on the wire (serde `rename_all`) to match the existing TS naming
+convention.
 
 ## Deferred to phase 2 (do not build yet)
 
-WARP/WireGuard/Tailscale, rule-resources, connection
-history, speed test, diagnostics/backup, sing-box dashboard embedding,
-window-chrome commands (Linux custom titlebar), native file dialogs. The
-Electron implementations of all of these are the reference for *behavior*
-once we get to them — see `FlowZ/src/main/services/` in the sibling
-Electron repo.
+WARP/WireGuard/Tailscale, rule-resources (GeoIP/GeoSite `.srs` rule-set
+*file* management/updates — distinct from the basic domain/IP/process
+`RoutingRule` matching already implemented, see "Routing rules" above),
+connection history, speed test, diagnostics/backup, sing-box dashboard
+embedding, window-chrome commands (Linux custom titlebar), native file
+dialogs. The Electron implementations of all of these are the reference for
+*behavior* once we get to them — see `FlowZ/src/main/services/` in the
+sibling Electron repo.

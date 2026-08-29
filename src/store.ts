@@ -5,6 +5,7 @@ import type {
   HelperStatus,
   PlatformInfo,
   ProxyStatus,
+  RoutingRule,
   ServerConfig,
   SystemProxyStatus,
   UserConfig,
@@ -47,6 +48,12 @@ interface AppStore {
   deleteServer: (id: string) => Promise<void>;
   selectServer: (id: string | null) => Promise<void>;
   importSubscription: (url: string) => Promise<void>;
+
+  addRule: (rule: RoutingRule) => Promise<void>;
+  updateRule: (rule: RoutingRule) => Promise<void>;
+  deleteRule: (id: string) => Promise<void>;
+  moveRuleUp: (id: string) => Promise<void>;
+  moveRuleDown: (id: string) => Promise<void>;
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
@@ -221,6 +228,63 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("error", `Failed to import subscription: ${appErrorMessage(err)}`);
     } finally {
       set({ subscriptionBusy: false });
+    }
+  },
+
+  addRule: async (rule) => {
+    try {
+      const config = await ipc.rulesAdd(rule);
+      set({ config });
+      get().pushToast("success", `Added rule "${rule.name}"`);
+    } catch (err) {
+      get().pushToast("error", `Failed to add rule: ${appErrorMessage(err)}`);
+    }
+  },
+
+  updateRule: async (rule) => {
+    try {
+      const config = await ipc.rulesUpdate(rule);
+      set({ config });
+    } catch (err) {
+      get().pushToast("error", `Failed to update rule: ${appErrorMessage(err)}`);
+    }
+  },
+
+  deleteRule: async (id) => {
+    try {
+      const config = await ipc.rulesDelete(id);
+      set({ config });
+      get().pushToast("success", "Rule removed");
+    } catch (err) {
+      get().pushToast("error", `Failed to delete rule: ${appErrorMessage(err)}`);
+    }
+  },
+
+  moveRuleUp: async (id) => {
+    const rules = get().config?.rules ?? [];
+    const index = rules.findIndex((r) => r.id === id);
+    if (index <= 0) return;
+    const ids = rules.map((r) => r.id);
+    [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
+    try {
+      const config = await ipc.rulesReorder(ids);
+      set({ config });
+    } catch (err) {
+      get().pushToast("error", `Failed to reorder rules: ${appErrorMessage(err)}`);
+    }
+  },
+
+  moveRuleDown: async (id) => {
+    const rules = get().config?.rules ?? [];
+    const index = rules.findIndex((r) => r.id === id);
+    if (index === -1 || index >= rules.length - 1) return;
+    const ids = rules.map((r) => r.id);
+    [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
+    try {
+      const config = await ipc.rulesReorder(ids);
+      set({ config });
+    } catch (err) {
+      get().pushToast("error", `Failed to reorder rules: ${appErrorMessage(err)}`);
     }
   },
 

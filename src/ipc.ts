@@ -8,6 +8,7 @@ import type {
   HelperStatus,
   PlatformInfo,
   ProxyStatus,
+  RoutingRule,
   ServerConfig,
   SystemProxyStatus,
   UserConfig,
@@ -19,6 +20,11 @@ export const ipc = {
 
   serversAdd: (server: ServerConfig) => invoke<UserConfig>("servers_add", { server }),
   serversDelete: (id: string) => invoke<UserConfig>("servers_delete", { id }),
+
+  rulesAdd: (rule: RoutingRule) => invoke<UserConfig>("rules_add", { rule }),
+  rulesUpdate: (rule: RoutingRule) => invoke<UserConfig>("rules_update", { rule }),
+  rulesDelete: (id: string) => invoke<UserConfig>("rules_delete", { id }),
+  rulesReorder: (orderedIds: string[]) => invoke<UserConfig>("rules_reorder", { orderedIds }),
 
   proxyStart: (serverId: string) => invoke<ProxyStatus>("proxy_start", { serverId }),
   proxyStop: () => invoke<ProxyStatus>("proxy_stop"),

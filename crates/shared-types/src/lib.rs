@@ -83,9 +83,41 @@ pub struct ProxyStatus {
     pub current_server_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuleMatchType {
+    Domain,
+    DomainSuffix,
+    DomainKeyword,
+    IpCidr,
+    ProcessName,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuleOutbound {
+    Proxy,
+    Direct,
+    Block,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingRule {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub match_type: RuleMatchType,
+    /// One or more raw match values (domains/suffixes/keywords/CIDRs/process
+    /// names depending on `match_type`) -- no cross-field validation here,
+    /// that's the UI's job to keep the input reasonable.
+    pub values: Vec<String>,
+    pub outbound: RuleOutbound,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserConfig {
     pub servers: Vec<ServerConfig>,
+    pub rules: Vec<RoutingRule>,
     pub selected_server_id: Option<String>,
     pub proxy_mode: ProxyMode,
     pub proxy_mode_type: ProxyModeType,
@@ -100,6 +132,7 @@ impl Default for UserConfig {
     fn default() -> Self {
         Self {
             servers: Vec::new(),
+            rules: Vec::new(),
             selected_server_id: None,
             proxy_mode: ProxyMode::Smart,
             proxy_mode_type: ProxyModeType::SystemProxy,

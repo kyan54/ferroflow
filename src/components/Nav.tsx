@@ -1,8 +1,9 @@
-export type View = "dashboard" | "servers" | "settings";
+export type View = "dashboard" | "servers" | "rules" | "settings";
 
 const TABS: { id: View; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "servers", label: "Servers" },
+  { id: "rules", label: "Rules" },
   { id: "settings", label: "Settings" },
 ];
 

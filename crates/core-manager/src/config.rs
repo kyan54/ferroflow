@@ -7,14 +7,18 @@
 //!
 //! MVP scope (see `docs/ipc-contract.md` + the core-manager task brief):
 //! one local `mixed` inbound (HTTP+SOCKS on one port, loopback only), one
-//! outbound matching the server's protocol plus a `direct` outbound, and a
-//! route whose `final` sends everything through the proxy outbound. No
-//! DNS config, no TUN inbound, no rule-based routing — those are phase 2.
+//! outbound matching the server's protocol plus a `direct` outbound (and a
+//! `block` outbound when a rule needs one), a `route.rules` array built from
+//! `UserConfig.rules` (domain/domain-suffix/domain-keyword/IP-CIDR/
+//! process-name matching only, no compound conditions, no GeoIP/GeoSite
+//! rule-set files), and a route whose `final` sends anything no rule matched
+//! through the proxy outbound. No DNS config, no TUN inbound configured here
+//! (see `tun.rs`).
 
 use std::net::Ipv4Addr;
 
 use serde_json::{json, Value};
-use shared_types::{Protocol, ServerConfig, TlsConfig};
+use shared_types::{Protocol, RoutingRule, RuleMatchType, RuleOutbound, ServerConfig, TlsConfig};
 
 use crate::tun;
 
@@ -31,6 +35,9 @@ pub const PROXY_OUTBOUND_TAG: &str = "proxy";
 pub const DIRECT_OUTBOUND_TAG: &str = "direct";
 /// Tag of the generated local `mixed` inbound.
 pub const MIXED_INBOUND_TAG: &str = "mixed-in";
+/// Tag of the generated `block` outbound — only emitted when at least one
+/// enabled rule references it (see `build_config_with_inbound`).
+pub const BLOCK_OUTBOUND_TAG: &str = "block";
 
 /// Builds the `tls` object for a proxy outbound, or `None` when the server
 /// has no TLS configured / TLS disabled. Scoped-down relative to the
@@ -145,14 +152,55 @@ pub fn build_inbound(port: u16) -> Value {
     })
 }
 
+/// Maps a `RuleMatchType` to the sing-box route-rule JSON field name it
+/// corresponds to.
+fn match_field_name(match_type: RuleMatchType) -> &'static str {
+    match match_type {
+        RuleMatchType::Domain => "domain",
+        RuleMatchType::DomainSuffix => "domain_suffix",
+        RuleMatchType::DomainKeyword => "domain_keyword",
+        RuleMatchType::IpCidr => "ip_cidr",
+        RuleMatchType::ProcessName => "process_name",
+    }
+}
+
+/// Maps a `RuleOutbound` to the tag of the outbound it should route to.
+fn outbound_tag(outbound: RuleOutbound) -> &'static str {
+    match outbound {
+        RuleOutbound::Proxy => PROXY_OUTBOUND_TAG,
+        RuleOutbound::Direct => DIRECT_OUTBOUND_TAG,
+        RuleOutbound::Block => BLOCK_OUTBOUND_TAG,
+    }
+}
+
+/// Builds the `route.rules` array from `rules`: disabled rules and rules
+/// with no match values are skipped (an empty match-field array is
+/// meaningless to sing-box, and a disabled rule shouldn't affect routing at
+/// all). Each `RoutingRule` sets exactly one match field — this codebase
+/// doesn't build compound-condition rules — plus an `outbound` tag. List
+/// order is preserved, matching sing-box's top-to-bottom first-match-wins
+/// evaluation.
+pub fn build_route_rules(rules: &[RoutingRule]) -> Vec<Value> {
+    rules
+        .iter()
+        .filter(|rule| rule.enabled && !rule.values.is_empty())
+        .map(|rule| {
+            json!({
+                match_field_name(rule.match_type): rule.values,
+                "outbound": outbound_tag(rule.outbound),
+            })
+        })
+        .collect()
+}
+
 /// Assembles the full sing-box config for a single-server MVP run: one
 /// `mixed` inbound on `inbound_port`, the server's proxy outbound plus a
-/// `direct` outbound, and `route.final` pointed at the proxy so all traffic
-/// through the inbound goes out via the configured server. No DNS block,
-/// no rules, no TUN — sing-box's own defaults cover DNS resolution for this
-/// scope.
-pub fn build_config(server: &ServerConfig, inbound_port: u16) -> Value {
-    build_config_with_inbound(server, build_inbound(inbound_port))
+/// `direct` outbound (and a `block` outbound when needed), `route.rules`
+/// built from `rules`, and `route.final` pointed at the proxy as the
+/// fallback when no rule matches. No DNS block, no TUN — sing-box's own
+/// defaults cover DNS resolution for this scope.
+pub fn build_config(server: &ServerConfig, inbound_port: u16, rules: &[RoutingRule]) -> Value {
+    build_config_with_inbound(server, build_inbound(inbound_port), rules)
 }
 
 /// Assembles the full sing-box config for a single-server TUN-mode run: one
@@ -161,27 +209,41 @@ pub fn build_config(server: &ServerConfig, inbound_port: u16) -> Value {
 /// config handed to the privileged helper (`HelperClient::start`) — a plain
 /// unprivileged process can't create a TUN interface, hence routing through
 /// the helper for this mode instead of `process::ProcessHandle`.
-pub fn build_tun_config(server: &ServerConfig) -> Value {
-    build_config_with_inbound(server, tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME))
+pub fn build_tun_config(server: &ServerConfig, rules: &[RoutingRule]) -> Value {
+    build_config_with_inbound(server, tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME), rules)
 }
 
 /// Shared assembly: `inbound` is the only thing that differs between the
-/// mixed-proxy and TUN config shapes — outbounds/route are identical.
-fn build_config_with_inbound(server: &ServerConfig, inbound: Value) -> Value {
+/// mixed-proxy and TUN config shapes — outbounds/route are otherwise
+/// identical. A `block` outbound is only added when at least one enabled
+/// rule actually references it, so we never emit an outbound nothing points
+/// at.
+fn build_config_with_inbound(server: &ServerConfig, inbound: Value, rules: &[RoutingRule]) -> Value {
+    let mut outbounds = vec![
+        build_outbound(server),
+        json!({
+            "type": "direct",
+            "tag": DIRECT_OUTBOUND_TAG,
+        }),
+    ];
+
+    let needs_block = rules.iter().any(|r| r.enabled && !r.values.is_empty() && r.outbound == RuleOutbound::Block);
+    if needs_block {
+        outbounds.push(json!({
+            "type": "block",
+            "tag": BLOCK_OUTBOUND_TAG,
+        }));
+    }
+
     json!({
         "log": {
             "level": "info",
             "timestamp": true,
         },
         "inbounds": [inbound],
-        "outbounds": [
-            build_outbound(server),
-            {
-                "type": "direct",
-                "tag": DIRECT_OUTBOUND_TAG,
-            },
-        ],
+        "outbounds": outbounds,
         "route": {
+            "rules": build_route_rules(rules),
             "final": PROXY_OUTBOUND_TAG,
         },
     })
@@ -191,6 +253,7 @@ fn build_config_with_inbound(server: &ServerConfig, inbound: Value) -> Value {
 mod tests {
     use super::*;
     use shared_types::TlsConfig;
+    use std::path::PathBuf;
 
     fn base_server(protocol: Protocol) -> ServerConfig {
         ServerConfig {
@@ -314,7 +377,7 @@ mod tests {
     #[test]
     fn full_config_has_mixed_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345);
+        let cfg = build_config(&server, 12345, &[]);
         assert_eq!(cfg["inbounds"][0]["type"], "mixed");
         assert_eq!(cfg["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(cfg["inbounds"][0]["listen_port"], 12345);
@@ -326,11 +389,195 @@ mod tests {
     #[test]
     fn full_tun_config_has_tun_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_tun_config(&server);
+        let cfg = build_tun_config(&server, &[]);
         assert_eq!(cfg["inbounds"][0]["type"], "tun");
         assert_eq!(cfg["inbounds"][0]["interface_name"], DEFAULT_TUN_INTERFACE_NAME);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert_eq!(cfg["outbounds"][1]["type"], "direct");
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+    }
+
+    fn rule(match_type: RuleMatchType, values: &[&str], outbound: RuleOutbound) -> RoutingRule {
+        RoutingRule {
+            id: "rule-1".into(),
+            name: "test rule".into(),
+            enabled: true,
+            match_type,
+            values: values.iter().map(|s| s.to_string()).collect(),
+            outbound,
+        }
+    }
+
+    #[test]
+    fn route_rule_domain_maps_to_domain_field() {
+        let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
+        let rules = build_route_rules(&[r]);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0]["domain"], json!(["example.com"]));
+        assert_eq!(rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn route_rule_domain_suffix_maps_to_domain_suffix_field() {
+        let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
+        let rules = build_route_rules(&[r]);
+        assert_eq!(rules[0]["domain_suffix"], json!([".cn"]));
+        assert_eq!(rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn route_rule_domain_keyword_maps_to_domain_keyword_field() {
+        let r = rule(RuleMatchType::DomainKeyword, &["ads"], RuleOutbound::Block);
+        let rules = build_route_rules(&[r]);
+        assert_eq!(rules[0]["domain_keyword"], json!(["ads"]));
+        assert_eq!(rules[0]["outbound"], BLOCK_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn route_rule_ip_cidr_maps_to_ip_cidr_field() {
+        let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
+        let rules = build_route_rules(&[r]);
+        assert_eq!(rules[0]["ip_cidr"], json!(["10.0.0.0/8"]));
+        assert_eq!(rules[0]["outbound"], BLOCK_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn route_rule_process_name_maps_to_process_name_field() {
+        let r = rule(RuleMatchType::ProcessName, &["chrome.exe"], RuleOutbound::Proxy);
+        let rules = build_route_rules(&[r]);
+        assert_eq!(rules[0]["process_name"], json!(["chrome.exe"]));
+        assert_eq!(rules[0]["outbound"], PROXY_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn disabled_rule_is_excluded() {
+        let mut r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
+        r.enabled = false;
+        let rules = build_route_rules(&[r]);
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn empty_values_rule_is_excluded() {
+        let r = rule(RuleMatchType::Domain, &[], RuleOutbound::Direct);
+        let rules = build_route_rules(&[r]);
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn block_outbound_absent_when_no_block_rules() {
+        let server = base_server(Protocol::Trojan);
+        let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
+        let cfg = build_config(&server, 12345, &[r]);
+        assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
+        assert!(cfg["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|o| o["type"] != "block"));
+    }
+
+    #[test]
+    fn block_outbound_present_when_enabled_block_rule_exists() {
+        let server = base_server(Protocol::Trojan);
+        let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
+        let cfg = build_config(&server, 12345, &[r]);
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        assert_eq!(outbounds.len(), 3);
+        assert!(outbounds.iter().any(|o| o["type"] == "block" && o["tag"] == BLOCK_OUTBOUND_TAG));
+    }
+
+    #[test]
+    fn block_outbound_absent_when_block_rule_disabled() {
+        let server = base_server(Protocol::Trojan);
+        let mut r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
+        r.enabled = false;
+        let cfg = build_config(&server, 12345, &[r]);
+        assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn route_rules_appear_in_generated_config() {
+        let server = base_server(Protocol::Trojan);
+        let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
+        let cfg = build_config(&server, 12345, &[r]);
+        assert_eq!(cfg["route"]["rules"].as_array().unwrap().len(), 1);
+        assert_eq!(cfg["route"]["rules"][0]["domain_suffix"], json!([".cn"]));
+        assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+    }
+
+    /// Real validation against an actual sing-box binary's `check -c <file>`
+    /// subcommand — the single most important check for this feature, since
+    /// a JSON shape sing-box's schema rejects (wrong field name, wrong type,
+    /// a `block` outbound referenced but never emitted, ...) only surfaces
+    /// this way, not via any `cargo test` assertion above. Builds a config
+    /// with one rule of every `RuleMatchType`/`RuleOutbound` combination
+    /// (including a `Block`-outbound rule, to confirm the conditionally-added
+    /// `block` outbound is both present and validly referenced) and asks the
+    /// real binary to validate it. Not run by default (`#[ignore]`), same
+    /// convention as `CoreManager`'s `real_singbox_local_backend_*` test —
+    /// needs a real binary at `<workspace root>/.dev-bin/sing-box[.exe]`.
+    /// Run manually with:
+    /// `cargo test -p core-manager --all-targets -- --ignored real_singbox`
+    #[test]
+    #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/"]
+    fn real_singbox_check_accepts_config_with_all_rule_kinds() {
+        use std::process::Command;
+
+        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary =
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.dev-bin")).join(binary_name);
+        assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
+
+        fn r(id: &str, match_type: RuleMatchType, values: &[&str], outbound: RuleOutbound) -> RoutingRule {
+            RoutingRule {
+                id: id.into(),
+                name: id.into(),
+                enabled: true,
+                match_type,
+                values: values.iter().map(|s| s.to_string()).collect(),
+                outbound,
+            }
+        }
+
+        let rules = vec![
+            r("r-domain", RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct),
+            r("r-suffix", RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct),
+            r("r-keyword", RuleMatchType::DomainKeyword, &["ads"], RuleOutbound::Block),
+            r("r-cidr", RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block),
+            r("r-process", RuleMatchType::ProcessName, &["chrome.exe"], RuleOutbound::Proxy),
+        ];
+
+        let server = base_server(Protocol::Trojan);
+        let cfg = build_config(&server, 12345, &rules);
+
+        // Sanity-check the block outbound really is present before handing
+        // this to sing-box, so a failed `check` clearly means "sing-box
+        // rejected the shape" rather than "we forgot to build it".
+        assert!(cfg["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["type"] == "block"));
+
+        let mut path = std::env::temp_dir();
+        path.push(format!("ferroflow-config-rules-check-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+
+        let output = Command::new(&binary)
+            .arg("check")
+            .arg("-c")
+            .arg(&path)
+            .output()
+            .expect("failed to run sing-box check");
+
+        let _ = std::fs::remove_file(&path);
+
+        assert!(
+            output.status.success(),
+            "sing-box check rejected the generated config.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
