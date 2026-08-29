@@ -32,7 +32,13 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/dashboard/": "dashboard/"
+      "resources/dashboard/": "dashboard/",
+      "resources/webview2/WebView2Loader.dll": "./"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
     }
   }
 }
