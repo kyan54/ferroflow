@@ -246,7 +246,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   importSubscription: async (url) => {
     set({ subscriptionBusy: true });
-    const before = get().config?.servers.length ?? 0;
+    const before = get().config?.servers?.length ?? 0;
     try {
       const config = await ipc.subscriptionImport(url);
       set({ config });

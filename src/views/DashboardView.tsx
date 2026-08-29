@@ -148,7 +148,7 @@ export function DashboardView() {
           <dd>{systemProxyStatus?.socksProxy ?? "—"}</dd>
           <dt className="text-slate-500 dark:text-slate-400">Bypass list</dt>
           <dd>
-            {systemProxyStatus?.bypassList.length
+            {systemProxyStatus?.bypassList?.length
               ? systemProxyStatus.bypassList.join(", ")
               : "—"}
           </dd>
