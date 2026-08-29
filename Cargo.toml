@@ -5,6 +5,7 @@ members = [
     "crates/shared-types",
     "crates/core-manager",
     "crates/net",
+    "crates/subscription",
     "crates/helper-proto",
     "crates/helper-client",
     "crates/helper-macos",
@@ -34,3 +35,4 @@ helper-proto = { path = "crates/helper-proto" }
 helper-client = { path = "crates/helper-client" }
 core-manager = { path = "crates/core-manager" }
 net = { path = "crates/net" }
+subscription = { path = "crates/subscription" }

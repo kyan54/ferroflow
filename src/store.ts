@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import { ipc } from "./ipc";
 import { appErrorMessage } from "./types";
-import type { PlatformInfo, ProxyStatus, ServerConfig, SystemProxyStatus, UserConfig } from "./types";
+import type {
+  HelperStatus,
+  PlatformInfo,
+  ProxyStatus,
+  ServerConfig,
+  SystemProxyStatus,
+  UserConfig,
+} from "./types";
 
 export interface Toast {
   id: number;
@@ -16,9 +23,12 @@ interface AppStore {
   proxyStatus: ProxyStatus | null;
   systemProxyStatus: SystemProxyStatus | null;
   platformInfo: PlatformInfo | null;
+  helperStatus: HelperStatus | null;
 
   configLoading: boolean;
   proxyBusy: boolean;
+  helperBusy: boolean;
+  subscriptionBusy: boolean;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], message: string) => void;
@@ -28,11 +38,15 @@ interface AppStore {
   refreshProxyStatus: () => Promise<void>;
   refreshSystemProxyStatus: () => Promise<void>;
   refreshPlatformInfo: () => Promise<void>;
+  refreshHelperStatus: () => Promise<void>;
+  installHelper: () => Promise<void>;
+  uninstallHelper: () => Promise<void>;
 
   saveConfig: (config: UserConfig) => Promise<void>;
   addServer: (server: ServerConfig) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
   selectServer: (id: string | null) => Promise<void>;
+  importSubscription: (url: string) => Promise<void>;
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
@@ -43,9 +57,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   proxyStatus: null,
   systemProxyStatus: null,
   platformInfo: null,
+  helperStatus: null,
 
   configLoading: false,
   proxyBusy: false,
+  helperBusy: false,
+  subscriptionBusy: false,
 
   toasts: [],
   pushToast: (kind, message) => {
@@ -110,6 +127,46 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  refreshHelperStatus: async () => {
+    try {
+      const helperStatus = await ipc.helperGetStatus();
+      set({ helperStatus });
+    } catch (err) {
+      // Not-installed is reported by the command as Ok(installed:false),
+      // so a thrown error here means something else went wrong (e.g. the
+      // command itself isn't wired up on this platform) — surface it
+      // quietly rather than a disruptive toast, matching refreshProxyStatus.
+      set({ helperStatus: null });
+      get().pushToast("info", `Helper status unavailable: ${appErrorMessage(err)}`);
+    }
+  },
+
+  installHelper: async () => {
+    set({ helperBusy: true });
+    try {
+      const helperStatus = await ipc.helperInstall();
+      set({ helperStatus });
+      get().pushToast("success", "Privileged helper installed");
+    } catch (err) {
+      get().pushToast("error", `Failed to install helper: ${appErrorMessage(err)}`);
+    } finally {
+      set({ helperBusy: false });
+    }
+  },
+
+  uninstallHelper: async () => {
+    set({ helperBusy: true });
+    try {
+      const helperStatus = await ipc.helperUninstall();
+      set({ helperStatus });
+      get().pushToast("success", "Privileged helper removed");
+    } catch (err) {
+      get().pushToast("error", `Failed to remove helper: ${appErrorMessage(err)}`);
+    } finally {
+      set({ helperBusy: false });
+    }
+  },
+
   saveConfig: async (config) => {
     try {
       await ipc.configSave(config);
@@ -149,6 +206,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ config: next });
     } catch (err) {
       get().pushToast("error", `Failed to select server: ${appErrorMessage(err)}`);
+    }
+  },
+
+  importSubscription: async (url) => {
+    set({ subscriptionBusy: true });
+    const before = get().config?.servers.length ?? 0;
+    try {
+      const config = await ipc.subscriptionImport(url);
+      set({ config });
+      const imported = config.servers.length - before;
+      get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
+    } catch (err) {
+      get().pushToast("error", `Failed to import subscription: ${appErrorMessage(err)}`);
+    } finally {
+      set({ subscriptionBusy: false });
     }
   },
 

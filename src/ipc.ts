@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  HelperStatus,
   PlatformInfo,
   ProxyStatus,
   ServerConfig,
@@ -23,6 +24,12 @@ export const ipc = {
   proxyStop: () => invoke<ProxyStatus>("proxy_stop"),
   proxyStatus: () => invoke<ProxyStatus>("proxy_status"),
 
+  subscriptionImport: (url: string) => invoke<UserConfig>("subscription_import", { url }),
+
   systemProxyStatus: () => invoke<SystemProxyStatus>("system_proxy_status"),
   platformInfo: () => invoke<PlatformInfo>("platform_info"),
+
+  helperGetStatus: () => invoke<HelperStatus>("helper_get_status"),
+  helperInstall: () => invoke<HelperStatus>("helper_install"),
+  helperUninstall: () => invoke<HelperStatus>("helper_uninstall"),
 };

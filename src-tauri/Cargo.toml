@@ -49,6 +49,7 @@ helper-macos = { path = "../crates/helper-macos" }
 # `#[cfg(target_os = "linux")]`-gated internally (see that crate's `lib.rs`).
 helper-linux = { path = "../crates/helper-linux" }
 net = { workspace = true }
+subscription = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

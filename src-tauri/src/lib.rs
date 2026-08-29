@@ -19,6 +19,7 @@ pub fn run() {
             commands::proxy::proxy_start,
             commands::proxy::proxy_stop,
             commands::proxy::proxy_status,
+            commands::subscription::subscription_import,
             commands::system::system_proxy_status,
             commands::system::platform_info,
             commands::helper::helper_get_status,

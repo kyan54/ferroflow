@@ -33,6 +33,7 @@ try {
 | `helper_get_status` | — | `HelperStatus` | pings the platform helper; `installed`/`ready` both `false` if unreachable |
 | `helper_install` | — | `HelperStatus` | one-time elevated install (UAC/osascript/pkexec); see "Helper install flow" below |
 | `helper_uninstall` | — | `HelperStatus` | reverses install |
+| `subscription_import` | `url: string` | `UserConfig` | fetches + parses a subscription URL, appends the parsed servers, persists, returns full config; see "Subscription import" below |
 
 `net`'s methods currently return `Err(AppError{code:"not_implemented",..})`
 — that's the seam a future `net` subagent fills in (system-proxy set/clear
@@ -82,6 +83,37 @@ convention: `FERROFLOW_HELPER_PATH` env var → `.dev-bin/<helper-exe-name>`
 wired into `tauri.conf.json` bundling yet — that's a packaging-pass
 follow-up, not blocking for dev/CI).
 
+## Subscription import
+
+`commands::subscription::subscription_import` (backed by the `subscription`
+crate) fetches a provider's subscription URL and bulk-imports every server
+it contains, rather than requiring one server to be typed in by hand at a
+time. Supported input shapes, mirroring what real-world proxy providers
+actually distribute:
+
+- **Body encoding**: either the whole response body base64-encoded, or
+  plain text — one share-link per line. `subscription::decode_subscription_body`
+  detects which by attempting a base64 decode and checking whether the
+  result contains a recognizable share-link scheme; if not, the body is
+  assumed to already be plaintext.
+- **Share-link formats**: `vless://`, `trojan://`, `ss://` (both the SIP002
+  base64-userinfo form and a plain unencoded `method:password@host:port`
+  fallback), and `vmess://` (base64-encoded JSON). Only the fields
+  `core-manager`'s outbound builder actually consumes are extracted (`uuid`/
+  `flow`, `password`, `encryption`, TLS/Reality settings) — transport
+  options like `path`/`headerType`/`net` are parsed by no one and ignored,
+  same MVP scope as `Protocol` itself (Vless/Trojan/Shadowsocks/Vmess only).
+- A malformed or unsupported line is skipped, not fatal — the command only
+  fails with `subscription_fetch_failed` (network/HTTP error) or
+  `subscription_empty` (fetch succeeded but zero lines parsed as a server).
+
+**Known limitation**: no dedupe. Importing the same subscription URL twice
+appends duplicate servers rather than merging against what's already in
+`UserConfig.servers` — there's no subscription-identity tracking (a
+provider's URL, an update timestamp, ...) to dedupe against yet. Fine for a
+one-shot "paste a URL, get servers" MVP flow; revisit once there's a UI for
+managing/refreshing a named subscription rather than importing once.
+
 ## Types (`crates/shared-types/src/lib.rs`)
 
 `Protocol` (Vless/Trojan/Shadowsocks/Vmess only for MVP — see file header),
@@ -92,7 +124,7 @@ existing TS naming convention.
 
 ## Deferred to phase 2 (do not build yet)
 
-WARP/WireGuard/Tailscale, subscriptions, rule-resources, connection
+WARP/WireGuard/Tailscale, rule-resources, connection
 history, speed test, diagnostics/backup, sing-box dashboard embedding,
 window-chrome commands (Linux custom titlebar), native file dialogs. The
 Electron implementations of all of these are the reference for *behavior*
