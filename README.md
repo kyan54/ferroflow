@@ -31,6 +31,14 @@ command surface and any per-feature caveats.
 - **Live connections**: sing-box's built-in Clash API, polled every 2s —
   active connections, per-connection close, close-all, running traffic
   totals.
+- **Connection history** (opt-in, off by default): a local, unencrypted
+  JSON-lines log of finished connections, capped at 1000 entries.
+- **WireGuard** as a fifth protocol (manual entry — there's no standardized
+  WireGuard share-link format to parse, unlike the other four). Uses
+  sing-box's current `endpoints`-based shape (the old `wireguard` outbound
+  was removed in sing-box 1.13.0 — caught by this project's insistence on
+  validating every new protocol against a real `sing-box check`, not just
+  documentation).
 - **Backup/restore**: export/import the full config (servers, rules,
   settings) as a versioned JSON file via native save/open dialogs.
 - **Diagnostic export**: a redacted Markdown report (secrets stripped) safe
@@ -51,12 +59,23 @@ command surface and any per-feature caveats.
 - **No dedupe** on repeated subscription imports (append-only).
 - **Clash API has no auth** (loopback-only, MVP simplification — see
   `docs/ipc-contract.md`).
-- **Not implemented at all**: WARP/WireGuard/Tailscale mesh networking,
-  persisted connection *history* (only live connections), speed test,
-  the sing-box web dashboard embed, Linux custom titlebar chrome (the
-  window currently uses the OS default decorations on all platforms).
+- **Not implemented at all**: Cloudflare WARP (needs a real registration
+  call against Cloudflare's API with a pinned TLS/HTTP fingerprint — real
+  but fragile-to-verify-offline network behavior, deliberately not
+  attempted without a way to test it against the live service) and
+  Tailscale (sing-box has no native Tailscale outbound the way it does for
+  WireGuard; the upstream Electron app embeds Go's `tsnet`, which has no
+  drop-in Rust equivalent — would need either shelling out to a real
+  `tailscale` CLI the user already has installed, or a much larger custom
+  integration). Also not implemented: speed test, the sing-box web
+  dashboard embed.
 - **No code signing** — Windows SmartScreen / macOS Gatekeeper will warn on
-  install; the same is true of upstream FlowZ's own unsigned builds.
+  install; the same is true of upstream FlowZ's own unsigned builds. This
+  needs a real certificate the project doesn't have, not just more code.
+- **Window chrome**: uses each OS's native title bar/decorations
+  everywhere (not a gap vs. the upstream Electron app's custom-drawn
+  frame — native decorations need no per-desktop-environment upkeep and
+  are the simpler, more robust default for a Tauri app).
 
 ## Development
 
