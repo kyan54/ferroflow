@@ -7,7 +7,10 @@
 //! Scope is intentionally MVP-sized: enough fields to start/stop a proxy,
 //! list/edit servers, and drive the three privileged helpers. Full protocol
 //! coverage (the ~15 protocols/transports the Electron version supports) is
-//! deferred to a follow-up pass — see README "MVP scope".
+//! deferred to a follow-up pass — see README "MVP scope". Vless/Trojan/
+//! Shadowsocks/Vmess/Wireguard are in scope; Wireguard is manual-entry-only
+//! (no subscription-link format for it, see `crates/subscription`) and has
+//! no TLS layer of its own (see `ServerConfig::wireguard_*` fields below).
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +21,7 @@ pub enum Protocol {
     Trojan,
     Shadowsocks,
     Vmess,
+    Wireguard,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,7 +38,10 @@ pub struct ServerConfig {
     pub id: String,
     pub name: String,
     pub protocol: Protocol,
+    /// For `Protocol::Wireguard`, this is the peer's endpoint host -- same
+    /// field, no dedicated `wireguard_*` address field needed.
     pub address: String,
+    /// For `Protocol::Wireguard`, this is the peer's endpoint port.
     pub port: u16,
 
     pub uuid: Option<String>,
@@ -42,7 +49,27 @@ pub struct ServerConfig {
     pub encryption: Option<String>,
     pub flow: Option<String>,
 
+    /// TLS config. Not applicable to `Protocol::Wireguard` -- WireGuard has
+    /// its own crypto handshake (see `wireguard_*` fields below) and no TLS
+    /// wrapping at all in sing-box's WireGuard support.
     pub tls: Option<TlsConfig>,
+
+    /// Base64-encoded 32-byte Curve25519 private key for this client, used
+    /// only by `Protocol::Wireguard`.
+    pub wireguard_private_key: Option<String>,
+    /// Base64-encoded 32-byte Curve25519 public key of the remote peer,
+    /// used only by `Protocol::Wireguard`.
+    pub wireguard_peer_public_key: Option<String>,
+    /// Optional base64-encoded 32-byte pre-shared key, used only by
+    /// `Protocol::Wireguard`. `None` when the peer doesn't use one.
+    pub wireguard_pre_shared_key: Option<String>,
+    /// This client's local tunnel address in CIDR form (e.g. `10.0.0.2/32`),
+    /// used only by `Protocol::Wireguard`. sing-box's own WireGuard `address`
+    /// field is an array (to support e.g. one IPv4 + one IPv6 address at
+    /// once); this app's MVP scope is a single address, wrapped into a
+    /// one-element array when building the config (see
+    /// `core-manager::config::build_outbound`'s `Wireguard` arm).
+    pub wireguard_local_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

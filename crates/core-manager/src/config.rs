@@ -76,7 +76,7 @@ fn build_tls(tls: &Option<TlsConfig>, fallback_server_name: &str) -> Option<Valu
     Some(obj)
 }
 
-/// Builds the sing-box outbound object for `server`, tagged
+/// Builds the sing-box outbound/endpoint object for `server`, tagged
 /// `PROXY_OUTBOUND_TAG`. Field mapping per protocol (see
 /// `singbox-outbound-builder.ts::buildProxyOutbound` for the full-featured
 /// reference this is scoped down from):
@@ -84,6 +84,24 @@ fn build_tls(tls: &Option<TlsConfig>, fallback_server_name: &str) -> Option<Valu
 /// - `vmess`: `uuid`, `security` (from `encryption`, default `auto`), `alter_id: 0`
 /// - `trojan`: `password`
 /// - `shadowsocks`: `method` (from `encryption`), `password`
+/// - `wireguard`: NOT an outbound on the sing-box versions this app targets
+///   -- sing-box deprecated the `wireguard` *outbound* type in 1.11.0 and
+///   removed it entirely in 1.13.0 ("WireGuard outbound is deprecated ...
+///   and removed in sing-box 1.13.0, use WireGuard endpoint instead",
+///   confirmed against the real `.dev-bin/sing-box.exe` binary this
+///   workspace validates against, which is 1.13.19). This arm therefore
+///   builds a WireGuard *endpoint* object instead: `address` (this app's
+///   MVP scope is one address, wrapped into a one-element array -- see
+///   `ServerConfig::wireguard_local_address`), `private_key`, and a single
+///   `peers` entry carrying `address`/`port` (from `server.address`/
+///   `server.port`), `public_key`, `allowed_ips` (hardcoded full-tunnel
+///   `0.0.0.0/0`/`::/0` -- no per-server UI for this in MVP scope), and
+///   `pre_shared_key` (omitted entirely when not set, not emitted as
+///   null/""). The caller (`build_config_with_inbound`) is responsible for
+///   placing this object in the config's top-level `endpoints` array rather
+///   than `outbounds` -- both are referenced by tag identically from
+///   `route.rules`/`route.final`, so `PROXY_OUTBOUND_TAG` still works
+///   unchanged as the tag every other protocol uses.
 pub fn build_outbound(server: &ServerConfig) -> Value {
     let mut outbound = match server.protocol {
         Protocol::Vless => {
@@ -125,12 +143,34 @@ pub fn build_outbound(server: &ServerConfig) -> Value {
             "method": server.encryption.clone().unwrap_or_else(|| "aes-256-gcm".to_string()),
             "password": server.password.clone().unwrap_or_default(),
         }),
+        Protocol::Wireguard => {
+            let local_address = server.wireguard_local_address.clone().unwrap_or_default();
+            let mut peer = json!({
+                "address": server.address,
+                "port": server.port,
+                "public_key": server.wireguard_peer_public_key.clone().unwrap_or_default(),
+                "allowed_ips": ["0.0.0.0/0", "::/0"],
+            });
+            if let Some(psk) = server.wireguard_pre_shared_key.as_deref() {
+                if !psk.is_empty() {
+                    peer["pre_shared_key"] = json!(psk);
+                }
+            }
+            json!({
+                "type": "wireguard",
+                "tag": PROXY_OUTBOUND_TAG,
+                "address": json!([local_address]),
+                "private_key": server.wireguard_private_key.clone().unwrap_or_default(),
+                "peers": [peer],
+            })
+        }
     };
 
     // sing-box's shadowsocks outbound has no top-level `tls` field (TLS-ing
-    // shadowsocks goes through a plugin, out of MVP scope) — only attach
-    // TLS for the other three protocols.
-    if !matches!(server.protocol, Protocol::Shadowsocks) {
+    // shadowsocks goes through a plugin, out of MVP scope), and WireGuard has
+    // its own crypto handshake with no TLS wrapping at all -- only attach TLS
+    // for the remaining protocols.
+    if !matches!(server.protocol, Protocol::Shadowsocks | Protocol::Wireguard) {
         if let Some(tls) = build_tls(&server.tls, &server.address) {
             outbound["tls"] = tls;
         }
@@ -238,19 +278,39 @@ pub fn build_tun_config(server: &ServerConfig, rules: &[RoutingRule], clash_api_
 /// rule actually references it, so we never emit an outbound nothing points
 /// at. `clash_api_port` is always set (every run gets a Clash API listener,
 /// regardless of mode) — see `build_config`'s doc comment.
+///
+/// The proxy object from `build_outbound` goes into `outbounds` for every
+/// protocol except `Wireguard`, which sing-box 1.13+ requires as a top-level
+/// `endpoints` entry instead (see `build_outbound`'s doc comment) — either
+/// way it's tagged `PROXY_OUTBOUND_TAG`, so `route.final` and any
+/// `RuleOutbound::Proxy` rule resolve to it unchanged regardless of which
+/// array it lives in. The `endpoints` key itself is omitted for non-
+/// WireGuard servers rather than emitted as `[]`, matching this module's
+/// existing convention of not emitting empty/unreferenced sections (see the
+/// `block` outbound above).
 fn build_config_with_inbound(
     server: &ServerConfig,
     inbound: Value,
     rules: &[RoutingRule],
     clash_api_port: u16,
 ) -> Value {
-    let mut outbounds = vec![
-        build_outbound(server),
-        json!({
-            "type": "direct",
-            "tag": DIRECT_OUTBOUND_TAG,
-        }),
-    ];
+    let proxy = build_outbound(server);
+    let is_wireguard = matches!(server.protocol, Protocol::Wireguard);
+
+    // Mutually exclusive with the `cfg["endpoints"] = ...` assignment below
+    // -- `proxy` is moved into exactly one of the two places depending on
+    // `is_wireguard`, never both.
+    let mut outbounds = Vec::new();
+    let mut wireguard_endpoint = None;
+    if is_wireguard {
+        wireguard_endpoint = Some(proxy);
+    } else {
+        outbounds.push(proxy);
+    }
+    outbounds.push(json!({
+        "type": "direct",
+        "tag": DIRECT_OUTBOUND_TAG,
+    }));
 
     let needs_block = rules.iter().any(|r| r.enabled && !r.values.is_empty() && r.outbound == RuleOutbound::Block);
     if needs_block {
@@ -260,7 +320,7 @@ fn build_config_with_inbound(
         }));
     }
 
-    json!({
+    let mut cfg = json!({
         "log": {
             "level": "info",
             "timestamp": true,
@@ -276,7 +336,13 @@ fn build_config_with_inbound(
                 "external_controller": format!("{}:{}", Ipv4Addr::LOCALHOST, clash_api_port),
             },
         },
-    })
+    });
+
+    if let Some(endpoint) = wireguard_endpoint {
+        cfg["endpoints"] = json!([endpoint]);
+    }
+
+    cfg
 }
 
 #[cfg(test)]
@@ -297,6 +363,10 @@ mod tests {
             encryption: None,
             flow: None,
             tls: None,
+            wireguard_private_key: None,
+            wireguard_peer_public_key: None,
+            wireguard_pre_shared_key: None,
+            wireguard_local_address: None,
         }
     }
 
@@ -353,6 +423,112 @@ mod tests {
         assert_eq!(o["method"], "chacha20-ietf-poly1305");
         assert_eq!(o["password"], "pw");
         assert!(o.get("tls").is_none());
+    }
+
+    #[test]
+    fn wireguard_endpoint_has_required_fields_with_correct_types() {
+        // Note: sing-box 1.13+ has no `wireguard` *outbound* type (removed;
+        // see `build_outbound`'s doc comment) -- `build_outbound` returns a
+        // WireGuard *endpoint* object for this protocol, which
+        // `build_config_with_inbound` places under the config's top-level
+        // `endpoints` array rather than `outbounds`. This test exercises
+        // `build_outbound` directly, so it checks the endpoint shape.
+        let mut server = base_server(Protocol::Wireguard);
+        server.wireguard_private_key = Some("gEnPO5uBo93i5evByKmDO5GIqP8CwK201ixEJAN1y1Y=".into());
+        server.wireguard_peer_public_key =
+            Some("/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=".into());
+        server.wireguard_local_address = Some("10.0.0.2/32".into());
+        let o = build_outbound(&server);
+
+        assert_eq!(o["type"], "wireguard");
+        assert_eq!(o["tag"], PROXY_OUTBOUND_TAG);
+        assert_eq!(o["private_key"], "gEnPO5uBo93i5evByKmDO5GIqP8CwK201ixEJAN1y1Y=");
+        // `address` is array-typed in sing-box even though this app's MVP
+        // scope only ever populates one address.
+        assert_eq!(o["address"], json!(["10.0.0.2/32"]));
+        assert!(o["address"].is_array());
+        assert!(o["peers"].is_array());
+        assert_eq!(o["peers"][0]["address"], "example.com");
+        assert_eq!(o["peers"][0]["port"], 443);
+        assert_eq!(o["peers"][0]["public_key"], "/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=");
+        assert!(o["peers"][0].get("pre_shared_key").is_none());
+    }
+
+    #[test]
+    fn wireguard_pre_shared_key_emitted_only_when_set() {
+        let mut server = base_server(Protocol::Wireguard);
+        server.wireguard_pre_shared_key =
+            Some("MihvP+gV2j8pb18XF/iI8DrXLj+AfScAscLfmlM2oLU=".into());
+        let o = build_outbound(&server);
+        assert_eq!(o["peers"][0]["pre_shared_key"], "MihvP+gV2j8pb18XF/iI8DrXLj+AfScAscLfmlM2oLU=");
+    }
+
+    #[test]
+    fn wireguard_missing_credentials_fall_back_to_empty_strings_not_panic() {
+        // Mirrors the other protocols' `unwrap_or_default()` convention --
+        // an empty-crypto config is sing-box `check`'s problem to reject, not
+        // a Rust-side panic.
+        let server = base_server(Protocol::Wireguard);
+        let o = build_outbound(&server);
+        assert_eq!(o["private_key"], "");
+        assert_eq!(o["peers"][0]["public_key"], "");
+        assert_eq!(o["address"], json!([""]));
+    }
+
+    #[test]
+    fn wireguard_never_gets_a_tls_block_even_if_server_has_one_set() {
+        // Defense-in-depth: `ServerConfig.tls` should always be `None` for a
+        // WireGuard server in practice (the frontend never populates it),
+        // but this confirms `build_outbound` itself refuses to attach TLS to
+        // a wireguard endpoint even if a caller mistakenly sets one.
+        let mut server = base_server(Protocol::Wireguard);
+        server.tls = Some(TlsConfig {
+            enabled: true,
+            server_name: Some("example.com".into()),
+            insecure: false,
+            reality_public_key: None,
+            reality_short_id: None,
+        });
+        let o = build_outbound(&server);
+        assert!(o.get("tls").is_none());
+    }
+
+    #[test]
+    fn wireguard_server_produces_endpoints_array_not_outbounds_entry() {
+        // Confirms `build_config_with_inbound`'s routing of the WireGuard
+        // object to the top-level `endpoints` array: the proxy tag still
+        // ends up in `outbounds` for every other protocol (see
+        // `full_config_has_mixed_inbound_and_final_route`), but for
+        // WireGuard it must NOT appear in `outbounds` at all, and
+        // `route.final` must still resolve to it via `endpoints`.
+        let mut server = base_server(Protocol::Wireguard);
+        server.wireguard_private_key = Some("gEnPO5uBo93i5evByKmDO5GIqP8CwK201ixEJAN1y1Y=".into());
+        server.wireguard_peer_public_key =
+            Some("/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=".into());
+        server.wireguard_local_address = Some("10.0.0.2/32".into());
+
+        let cfg = build_config(&server, 12345, &[], 9999);
+
+        assert!(cfg["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|o| o["type"] != "wireguard"));
+        assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 1);
+        assert_eq!(cfg["outbounds"][0]["type"], "direct");
+
+        let endpoints = cfg["endpoints"].as_array().expect("endpoints array present");
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0]["type"], "wireguard");
+        assert_eq!(endpoints[0]["tag"], PROXY_OUTBOUND_TAG);
+        assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn non_wireguard_server_has_no_endpoints_key() {
+        let server = base_server(Protocol::Trojan);
+        let cfg = build_config(&server, 12345, &[], 9999);
+        assert!(cfg.get("endpoints").is_none());
     }
 
     #[test]
@@ -655,6 +831,85 @@ mod tests {
         assert!(
             output.status.success(),
             "sing-box check rejected the generated config with clash_api enabled.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Real validation of a `Protocol::Wireguard` server against an actual
+    /// sing-box binary's `check -c <file>` subcommand.
+    ///
+    /// **Important scope note**: sing-box deprecated the `wireguard`
+    /// *outbound* type in 1.11.0 and removed it entirely in 1.13.0
+    /// (confirmed directly against `.dev-bin/sing-box.exe`, which is
+    /// 1.13.19 -- `check` fails with "WireGuard outbound is deprecated ...
+    /// and removed in sing-box 1.13.0, use WireGuard endpoint instead" when
+    /// fed the old outbound shape). `build_outbound`'s `Wireguard` arm
+    /// therefore builds a WireGuard *endpoint* object instead, and
+    /// `build_config_with_inbound` places it under the config's top-level
+    /// `endpoints` array rather than `outbounds` -- see both functions' doc
+    /// comments. This test asserts against that endpoint shape.
+    ///
+    /// The keys below are real output from `.dev-bin/sing-box.exe generate
+    /// wg-keypair` (private key of one keypair as `wireguard_private_key`,
+    /// public key of a *different* keypair as `wireguard_peer_public_key`)
+    /// and `... generate rand --base64 32` (for `wireguard_pre_shared_key`)
+    /// -- `sing-box check` only validates base64 decodability/length, not
+    /// real cryptographic validity against a live peer, but a hand-typed
+    /// placeholder risks failing that length check in a way that looks like
+    /// a bug in this module rather than a bad fixture. Same convention as
+    /// the other `real_singbox_*` tests in this file: not run by default
+    /// (`#[ignore]`), needs a real binary at
+    /// `<workspace root>/.dev-bin/sing-box[.exe]`. Run manually with:
+    /// `cargo test -p core-manager --all-targets -- --ignored real_singbox`
+    #[test]
+    #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/"]
+    fn real_singbox_check_accepts_wireguard_endpoint() {
+        use std::process::Command;
+
+        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary =
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.dev-bin")).join(binary_name);
+        assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
+
+        let mut server = base_server(Protocol::Wireguard);
+        server.wireguard_private_key = Some("gEnPO5uBo93i5evByKmDO5GIqP8CwK201ixEJAN1y1Y=".into());
+        server.wireguard_peer_public_key =
+            Some("/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=".into());
+        server.wireguard_pre_shared_key =
+            Some("MihvP+gV2j8pb18XF/iI8DrXLj+AfScAscLfmlM2oLU=".into());
+        server.wireguard_local_address = Some("10.0.0.2/32".into());
+
+        let cfg = build_config(&server, 12345, &[], 9999);
+
+        // Sanity-check the endpoint shape before handing this to sing-box,
+        // so a failed `check` clearly means "sing-box rejected the shape"
+        // rather than "we forgot to build it". Also confirm it did NOT end
+        // up in `outbounds` (sing-box 1.13+ would reject that placement).
+        assert_eq!(cfg["endpoints"][0]["type"], "wireguard");
+        assert!(cfg["endpoints"][0].get("tls").is_none());
+        assert!(cfg["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|o| o["type"] != "wireguard"));
+
+        let mut path = std::env::temp_dir();
+        path.push(format!("ferroflow-config-wireguard-check-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+
+        let output = Command::new(&binary)
+            .arg("check")
+            .arg("-c")
+            .arg(&path)
+            .output()
+            .expect("failed to run sing-box check");
+
+        let _ = std::fs::remove_file(&path);
+
+        assert!(
+            output.status.success(),
+            "sing-box check rejected the generated wireguard config.\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

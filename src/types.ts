@@ -1,9 +1,9 @@
 // Mirrors crates/shared-types/src/lib.rs exactly (camelCase on the wire via
 // serde rename_all). Keep in sync with that file until specta codegen lands.
 
-export type Protocol = "vless" | "trojan" | "shadowsocks" | "vmess";
+export type Protocol = "vless" | "trojan" | "shadowsocks" | "vmess" | "wireguard";
 
-export const PROTOCOLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess"];
+export const PROTOCOLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess", "wireguard"];
 
 export interface TlsConfig {
   enabled: boolean;
@@ -17,7 +17,9 @@ export interface ServerConfig {
   id: string;
   name: string;
   protocol: Protocol;
+  /** For "wireguard", this is the peer's endpoint host. */
   address: string;
+  /** For "wireguard", this is the peer's endpoint port. */
   port: number;
 
   uuid?: string | null;
@@ -25,7 +27,17 @@ export interface ServerConfig {
   encryption?: string | null;
   flow?: string | null;
 
+  /** Not applicable to "wireguard" -- it has no TLS layer. */
   tls?: TlsConfig | null;
+
+  /** Base64-encoded 32-byte private key. Only used by "wireguard". */
+  wireguardPrivateKey?: string | null;
+  /** Base64-encoded 32-byte peer public key. Only used by "wireguard". */
+  wireguardPeerPublicKey?: string | null;
+  /** Optional base64-encoded 32-byte pre-shared key. Only used by "wireguard". */
+  wireguardPreSharedKey?: string | null;
+  /** This client's local tunnel address in CIDR form (e.g. "10.0.0.2/32"). Only used by "wireguard". */
+  wireguardLocalAddress?: string | null;
 }
 
 export type ProxyMode = "global" | "smart" | "direct";

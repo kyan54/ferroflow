@@ -8,7 +8,13 @@ const PROTOCOL_FIELDS: Record<Protocol, { uuid: boolean; password: boolean; encr
   vmess: { uuid: true, password: false, encryption: true, flow: false },
   trojan: { uuid: false, password: true, encryption: false, flow: false },
   shadowsocks: { uuid: false, password: true, encryption: true, flow: false },
+  wireguard: { uuid: false, password: false, encryption: false, flow: false },
 };
+
+// WireGuard has its own crypto handshake and no TLS layer at all (see
+// core-manager::config::build_outbound's wireguard arm) -- the shared TLS
+// fieldset below doesn't apply to it.
+const PROTOCOLS_WITH_TLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess"];
 
 function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -29,6 +35,11 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
   const [encryption, setEncryption] = useState("");
   const [flow, setFlow] = useState("");
 
+  const [wireguardPrivateKey, setWireguardPrivateKey] = useState("");
+  const [wireguardPeerPublicKey, setWireguardPeerPublicKey] = useState("");
+  const [wireguardPreSharedKey, setWireguardPreSharedKey] = useState("");
+  const [wireguardLocalAddress, setWireguardLocalAddress] = useState("");
+
   const [tlsEnabled, setTlsEnabled] = useState(true);
   const [serverName, setServerName] = useState("");
   const [insecure, setInsecure] = useState(false);
@@ -38,6 +49,8 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
   const [submitting, setSubmitting] = useState(false);
 
   const fields = PROTOCOL_FIELDS[protocol];
+  const isWireguard = protocol === "wireguard";
+  const showTls = PROTOCOLS_WITH_TLS.includes(protocol);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,15 +69,20 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
       password: fields.password ? password || null : null,
       encryption: fields.encryption ? encryption.trim() || null : null,
       flow: fields.flow ? flow.trim() || null : null,
-      tls: tlsEnabled
-        ? {
-            enabled: true,
-            serverName: serverName.trim() || null,
-            insecure,
-            realityPublicKey: realityPublicKey.trim() || null,
-            realityShortId: realityShortId.trim() || null,
-          }
-        : null,
+      tls:
+        showTls && tlsEnabled
+          ? {
+              enabled: true,
+              serverName: serverName.trim() || null,
+              insecure,
+              realityPublicKey: realityPublicKey.trim() || null,
+              realityShortId: realityShortId.trim() || null,
+            }
+          : null,
+      wireguardPrivateKey: isWireguard ? wireguardPrivateKey.trim() || null : null,
+      wireguardPeerPublicKey: isWireguard ? wireguardPeerPublicKey.trim() || null : null,
+      wireguardPreSharedKey: isWireguard ? wireguardPreSharedKey.trim() || null : null,
+      wireguardLocalAddress: isWireguard ? wireguardLocalAddress.trim() || null : null,
     };
 
     setSubmitting(true);
@@ -179,59 +197,105 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
             />
           </label>
         )}
+
+        {isWireguard && (
+          <>
+            <label className="flex flex-col gap-1 text-sm">
+              Private key
+              <input
+                value={wireguardPrivateKey}
+                onChange={(e) => setWireguardPrivateKey(e.target.value)}
+                placeholder="base64 32-byte key"
+                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm">
+              Peer public key
+              <input
+                value={wireguardPeerPublicKey}
+                onChange={(e) => setWireguardPeerPublicKey(e.target.value)}
+                placeholder="base64 32-byte key"
+                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm">
+              Pre-shared key (optional)
+              <input
+                value={wireguardPreSharedKey}
+                onChange={(e) => setWireguardPreSharedKey(e.target.value)}
+                placeholder="base64 32-byte key"
+                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm">
+              Local address
+              <input
+                value={wireguardLocalAddress}
+                onChange={(e) => setWireguardLocalAddress(e.target.value)}
+                placeholder="10.0.0.2/32"
+                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+              />
+            </label>
+          </>
+        )}
       </div>
 
-      <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <legend className="px-1 text-sm font-medium">TLS</legend>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={tlsEnabled}
-            onChange={(e) => setTlsEnabled(e.target.checked)}
-          />
-          Enabled
-        </label>
+      {showTls && (
+        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1 text-sm font-medium">TLS</legend>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={tlsEnabled}
+              onChange={(e) => setTlsEnabled(e.target.checked)}
+            />
+            Enabled
+          </label>
 
-        {tlsEnabled && (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-sm">
-              Server name (SNI)
-              <input
-                value={serverName}
-                onChange={(e) => setServerName(e.target.value)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-              />
-            </label>
+          {tlsEnabled && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-sm">
+                Server name (SNI)
+                <input
+                  value={serverName}
+                  onChange={(e) => setServerName(e.target.value)}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+                />
+              </label>
 
-            <label className="mt-6 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={insecure}
-                onChange={(e) => setInsecure(e.target.checked)}
-              />
-              Allow insecure (skip cert verify)
-            </label>
+              <label className="mt-6 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={insecure}
+                  onChange={(e) => setInsecure(e.target.checked)}
+                />
+                Allow insecure (skip cert verify)
+              </label>
 
-            <label className="flex flex-col gap-1 text-sm">
-              Reality public key
-              <input
-                value={realityPublicKey}
-                onChange={(e) => setRealityPublicKey(e.target.value)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-              />
-            </label>
+              <label className="flex flex-col gap-1 text-sm">
+                Reality public key
+                <input
+                  value={realityPublicKey}
+                  onChange={(e) => setRealityPublicKey(e.target.value)}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+                />
+              </label>
 
-            <label className="flex flex-col gap-1 text-sm">
-              Reality short ID
-              <input
-                value={realityShortId}
-                onChange={(e) => setRealityShortId(e.target.value)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
-              />
-            </label>
-          </div>
-        )}
-      </fieldset>
+              <label className="flex flex-col gap-1 text-sm">
+                Reality short ID
+                <input
+                  value={realityShortId}
+                  onChange={(e) => setRealityShortId(e.target.value)}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-900"
+                />
+              </label>
+            </div>
+          )}
+        </fieldset>
+      )}
 
       <div className="flex justify-end gap-2">
         <button

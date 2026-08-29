@@ -146,6 +146,10 @@ mod tests {
             encryption: None,
             flow: None,
             tls: None,
+            wireguard_private_key: None,
+            wireguard_peer_public_key: None,
+            wireguard_pre_shared_key: None,
+            wireguard_local_address: None,
         };
 
         let started = manager

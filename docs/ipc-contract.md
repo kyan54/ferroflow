@@ -111,8 +111,11 @@ actually distribute:
   fallback), and `vmess://` (base64-encoded JSON). Only the fields
   `core-manager`'s outbound builder actually consumes are extracted (`uuid`/
   `flow`, `password`, `encryption`, TLS/Reality settings) — transport
-  options like `path`/`headerType`/`net` are parsed by no one and ignored,
-  same MVP scope as `Protocol` itself (Vless/Trojan/Shadowsocks/Vmess only).
+  options like `path`/`headerType`/`net` are parsed by no one and ignored.
+  **WireGuard has no parser here** — there is no standardized WireGuard
+  share-link URI scheme in wide use the way there is for the other four
+  protocols, so WireGuard servers can only be added by hand via `ServerForm`
+  (see "WireGuard" under "Types" below).
 - A malformed or unsupported line is skipped, not fatal — the command only
   fails with `subscription_fetch_failed` (network/HTTP error) or
   `subscription_empty` (fetch succeeded but zero lines parsed as a server).
@@ -256,9 +259,9 @@ along with everything else, since it's a fresh sing-box process each time.
 
 ## Types (`crates/shared-types/src/lib.rs`)
 
-`Protocol` (Vless/Trojan/Shadowsocks/Vmess only for MVP — see file header),
-`ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`, `UserConfig`,
-`RoutingRule`, `RuleMatchType`, `RuleOutbound`, `HelperStatus`,
+`Protocol` (Vless/Trojan/Shadowsocks/Vmess/Wireguard for MVP — see file
+header), `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`,
+`UserConfig`, `RoutingRule`, `RuleMatchType`, `RuleOutbound`, `HelperStatus`,
 `SystemProxyStatus`, `PlatformInfo`, `ConnectionMetadata`, `ConnectionInfo`,
 `ConnectionsSnapshot`, `AppError`/`AppResult`. Field names are `camelCase`
 on the wire (serde `rename_all`) to match the existing TS naming convention
@@ -268,9 +271,36 @@ explicitly renamed to `destinationIP` (not the `camelCase`-derived
 a mismatch there would silently deserialize to an empty string rather than
 fail to compile.
 
+### WireGuard
+
+WireGuard servers are **manual-entry-only**: unlike Vless/Trojan/
+Shadowsocks/Vmess, there is no standardized WireGuard share-link URI scheme
+in wide use, so `subscription::parse` has no WireGuard parser and never
+will until one becomes a de-facto standard worth targeting. A WireGuard
+`ServerConfig` carries four dedicated fields instead of the usual
+`uuid`/`password`/`encryption`/`flow`: `wireguardPrivateKey`,
+`wireguardPeerPublicKey`, `wireguardPreSharedKey` (optional), and
+`wireguardLocalAddress` (single CIDR address, e.g. `10.0.0.2/32`) — the
+peer endpoint itself reuses the existing `address`/`port` fields. WireGuard
+also has **no TLS layer** (`tls` is always `null` for it — it's a distinct
+crypto handshake, not something TLS wraps); `ServerForm` hides the TLS
+fieldset entirely when `protocol === "wireguard"`.
+
+On the `core-manager` side, note that sing-box removed the `wireguard`
+*outbound* type in 1.13.0 (deprecated since 1.11.0) in favor of a
+WireGuard *endpoint* — `core-manager::config::build_outbound`'s
+`Wireguard` arm builds that endpoint shape, and
+`build_config_with_inbound` places it under the generated config's
+top-level `endpoints` array rather than `outbounds`. It's still tagged and
+referenced exactly like every other protocol's proxy outbound (`route.final`
+and `RuleOutbound::Proxy` both resolve to the same `PROXY_OUTBOUND_TAG`),
+so this is purely an internal JSON-shape detail invisible to the IPC
+surface.
+
 ## Deferred to phase 2 (do not build yet)
 
-WARP/WireGuard/Tailscale, rule-resources (GeoIP/GeoSite `.srs` rule-set
+WARP/Tailscale (WireGuard itself is now implemented — see "WireGuard"
+above), rule-resources (GeoIP/GeoSite `.srs` rule-set
 *file* management/updates — distinct from the basic domain/IP/process
 `RoutingRule` matching already implemented, see "Routing rules" above),
 persisted connection history (distinct from the live, in-memory connection

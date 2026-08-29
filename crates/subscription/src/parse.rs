@@ -147,6 +147,10 @@ fn parse_vless(rest: &str) -> Option<ServerConfig> {
         encryption: None,
         flow,
         tls,
+        wireguard_private_key: None,
+        wireguard_peer_public_key: None,
+        wireguard_pre_shared_key: None,
+        wireguard_local_address: None,
     })
 }
 
@@ -193,6 +197,10 @@ fn parse_trojan(rest: &str) -> Option<ServerConfig> {
             reality_public_key: None,
             reality_short_id: None,
         }),
+        wireguard_private_key: None,
+        wireguard_peer_public_key: None,
+        wireguard_pre_shared_key: None,
+        wireguard_local_address: None,
     })
 }
 
@@ -239,6 +247,10 @@ fn parse_shadowsocks(rest: &str) -> Option<ServerConfig> {
         encryption: Some(method),
         flow: None,
         tls: None,
+        wireguard_private_key: None,
+        wireguard_peer_public_key: None,
+        wireguard_pre_shared_key: None,
+        wireguard_local_address: None,
     })
 }
 
@@ -330,6 +342,10 @@ fn parse_vmess(rest: &str) -> Option<ServerConfig> {
         encryption: Some(encryption),
         flow: None,
         tls,
+        wireguard_private_key: None,
+        wireguard_peer_public_key: None,
+        wireguard_pre_shared_key: None,
+        wireguard_local_address: None,
     })
 }
 

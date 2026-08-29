@@ -94,8 +94,9 @@ fn ser_str<T: serde::Serialize>(value: &T) -> String {
 ///
 /// - **Servers**: `name`/`protocol`/`address`/`port`/`tls.enabled`/
 ///   `tls.server_name` are shown (useful for diagnosing a connection issue);
-///   `uuid`/`password`/`reality_public_key`/`reality_short_id` are never
-///   included at all.
+///   `uuid`/`password`/`reality_public_key`/`reality_short_id`/
+///   `wireguard_private_key`/`wireguard_peer_public_key`/
+///   `wireguard_pre_shared_key` are never included at all.
 /// - **Rules**: shown in full -- domains/IPs/process names are the entire
 ///   point of a rule, not a secret.
 /// - **Settings**: the non-secret `UserConfig` fields (proxy mode/type,
@@ -167,7 +168,8 @@ fn render_diagnostic_report(
         let _ = writeln!(
             out,
             "Redacted (present in the real config, stripped from this report): `uuid`, \
-             `password`, `tls.reality_public_key`, `tls.reality_short_id`."
+             `password`, `tls.reality_public_key`, `tls.reality_short_id`, \
+             `wireguard_private_key`, `wireguard_peer_public_key`, `wireguard_pre_shared_key`."
         );
     }
     let _ = writeln!(out);
@@ -365,6 +367,10 @@ mod tests {
                     reality_public_key: Some("secret-reality-pubkey".to_string()),
                     reality_short_id: Some("secret-reality-shortid".to_string()),
                 }),
+                wireguard_private_key: None,
+                wireguard_peer_public_key: None,
+                wireguard_pre_shared_key: None,
+                wireguard_local_address: None,
             }],
             rules: vec![RoutingRule {
                 id: "rule-1".to_string(),
