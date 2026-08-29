@@ -41,6 +41,7 @@ interface AppStore {
   proxyBusy: boolean;
   helperBusy: boolean;
   subscriptionBusy: boolean;
+  warpBusy: boolean;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], message: string) => void;
@@ -59,6 +60,7 @@ interface AppStore {
   deleteServer: (id: string) => Promise<void>;
   selectServer: (id: string | null) => Promise<void>;
   importSubscription: (url: string) => Promise<void>;
+  registerWarp: () => Promise<void>;
 
   addRule: (rule: RoutingRule) => Promise<void>;
   updateRule: (rule: RoutingRule) => Promise<void>;
@@ -68,6 +70,7 @@ interface AppStore {
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
+  openDashboard: () => Promise<void>;
 
   refreshConnections: () => Promise<void>;
   closeConnection: (id: string) => Promise<void>;
@@ -94,6 +97,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   proxyBusy: false,
   helperBusy: false,
   subscriptionBusy: false,
+  warpBusy: false,
 
   toasts: [],
   pushToast: (kind, message) => {
@@ -255,6 +259,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  registerWarp: async () => {
+    set({ warpBusy: true });
+    try {
+      const config = await ipc.warpRegister();
+      set({ config });
+      get().pushToast("success", "Registered Cloudflare WARP");
+    } catch (err) {
+      get().pushToast("error", `Failed to register Cloudflare WARP: ${appErrorMessage(err)}`);
+    } finally {
+      set({ warpBusy: false });
+    }
+  },
+
   addRule: async (rule) => {
     try {
       const config = await ipc.rulesAdd(rule);
@@ -339,6 +356,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("error", `Failed to stop proxy: ${appErrorMessage(err)}`);
     } finally {
       set({ proxyBusy: false });
+    }
+  },
+
+  openDashboard: async () => {
+    try {
+      await ipc.dashboardOpen();
+    } catch (err) {
+      get().pushToast("error", `Failed to open sing-box dashboard: ${appErrorMessage(err)}`);
     }
   },
 

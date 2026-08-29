@@ -56,6 +56,8 @@ function SubscriptionImportForm({ onDone }: { onDone: () => void }) {
 export function ServersView() {
   const config = useAppStore((s) => s.config);
   const deleteServer = useAppStore((s) => s.deleteServer);
+  const registerWarp = useAppStore((s) => s.registerWarp);
+  const warpBusy = useAppStore((s) => s.warpBusy);
   const [showForm, setShowForm] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
 
@@ -67,6 +69,13 @@ export function ServersView() {
         <h2 className="text-lg font-semibold">Servers</h2>
         {!showForm && !showImportForm && (
           <div className="flex gap-2">
+            <button
+              onClick={() => registerWarp()}
+              disabled={warpBusy}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {warpBusy ? "Registering…" : "Get Cloudflare WARP"}
+            </button>
             <button
               onClick={() => setShowImportForm(true)}
               className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"

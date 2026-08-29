@@ -1,0 +1,28 @@
+[package]
+name = "warp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+base64 = "0.22"
+# rustls, not native-tls/OpenSSL, so Linux CI doesn't need system OpenSSL dev
+# packages -- matches `subscription`/`core-manager`'s own reqwest shape. This
+# crate additionally needs the `json` feature (unlike `subscription::fetch`,
+# which only ever reads a raw text body) since Cloudflare's registration
+# response is parsed as typed JSON -- see `core-manager`'s `clash_api.rs` for
+# the workspace's other `json`-enabled reqwest consumer.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# X25519 keypair generation for the WireGuard client identity we register
+# with Cloudflare. `static_secrets` is required for `StaticSecret` itself
+# (see https://docs.rs/x25519-dalek/2.0.1/x25519_dalek/struct.StaticSecret.html).
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+# Supplies `rand::rngs::OsRng`, which satisfies `StaticSecret::random_from_rng`'s
+# `RngCore + CryptoRng` bound (both crates depend on the same `rand_core`
+# 0.6.x line, so cargo unifies them) -- matches the `rand = "0.8"` already
+# used elsewhere in this workspace (`src-tauri/Cargo.toml`).
+rand = "0.8"

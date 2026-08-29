@@ -558,6 +558,18 @@ impl CoreManager {
             .map(|running| running.clash_api_port)
             .ok_or_else(|| AppError::new("proxy_not_running", "the proxy is not currently running"))
     }
+
+    /// Public, infallible variant of `clash_api_port` for callers that want
+    /// to branch on "is a Clash API even up right now" themselves rather
+    /// than getting an `AppError` (see `commands::dashboard::dashboard_open`,
+    /// which needs the port to build the sing-box dashboard window's
+    /// connection info and has its own `proxy_not_running` error message).
+    /// `None` means nothing is currently running, same condition as
+    /// `clash_api_port`'s `Err` case.
+    pub async fn current_clash_api_port(&self) -> Option<u16> {
+        let guard = self.running.lock().await;
+        guard.as_ref().map(|running| running.clash_api_port)
+    }
 }
 
 impl Default for CoreManager {

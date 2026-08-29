@@ -35,6 +35,7 @@ try {
 | `connections_list` | — | `ConnectionsSnapshot` | delegates to `core-manager`'s Clash API client; `proxy_not_running` if nothing is running |
 | `connections_close` | `id: string` | `()` | closes one connection by id |
 | `connections_close_all` | — | `()` | closes every current connection |
+| `dashboard_open` | — | `()` | opens (or focuses, if already open) the bundled sing-box dashboard window; `proxy_not_running` if the proxy isn't running; see "sing-box dashboard" below |
 | `history_list` | — | `HistoryEntry[]` | reads the local connection-history log, most-recent-first; missing file (never enabled) returns `[]`, not an error; see "Connection history" below |
 | `history_clear` | — | `()` | deletes the history file; idempotent, missing file is not an error |
 | `system_proxy_status` | — | `SystemProxyStatus` | delegates to `net` |
@@ -43,6 +44,7 @@ try {
 | `helper_install` | — | `HelperStatus` | one-time elevated install (UAC/osascript/pkexec); see "Helper install flow" below |
 | `helper_uninstall` | — | `HelperStatus` | reverses install |
 | `subscription_import` | `url: string` | `UserConfig` | fetches + parses a subscription URL, appends the parsed servers, persists, returns full config; see "Subscription import" below |
+| `warp_register` | — | `UserConfig` | registers a new anonymous Cloudflare WARP device, appends it as a WireGuard server, persists, returns full config; see "Cloudflare WARP" below |
 | `backup_export` | `path: string` | `()` | writes the current config as a versioned JSON backup to `path` (chosen by the frontend's native save dialog); see "Backup & diagnostics" below |
 | `backup_import` | `path: string` | `UserConfig` | reads a versioned JSON backup from `path` (chosen by the frontend's native open dialog), replaces + persists the config, returns the new config |
 | `diagnostic_export` | `path: string` | `()` | writes a redacted Markdown diagnostic report to `path`; see "Backup & diagnostics" below |
@@ -128,6 +130,51 @@ appends duplicate servers rather than merging against what's already in
 provider's URL, an update timestamp, ...) to dedupe against yet. Fine for a
 one-shot "paste a URL, get servers" MVP flow; revisit once there's a UI for
 managing/refreshing a named subscription rather than importing once.
+
+## Cloudflare WARP
+
+`commands::warp::warp_register` (backed by the `warp` crate) is a one-click
+alternative to hand-entering a WireGuard server: it registers a brand-new,
+free, **anonymous** device with Cloudflare's real WARP registration API
+(`api.cloudflareclient.com`), then maps the response directly onto a
+WireGuard `ServerConfig` and appends it (named "Cloudflare WARP", with a
+`" (2)"`/`" (3)"`/... suffix if that name is already taken) exactly like
+`servers_add`/`subscription_import` do. No form, no user input — the button
+just registers and appends.
+
+This is **not** reverse-engineering an undocumented private API: it's the
+same public, unauthenticated self-service registration endpoint the
+well-known open-source `wgcf` project (and the official WARP mobile apps)
+use to mint anonymous WireGuard identities. Any caller can `POST` a freshly
+generated X25519 public key and get back a working WireGuard peer config —
+no Cloudflare account, login, or API token involved.
+
+Two fixed-value choices worth knowing about, both confirmed against real,
+successful registrations (see `crates/warp`'s doc comment and its ignored
+live integration test):
+
+- Cloudflare's response embeds the peer endpoint as `<ip>:0` — a
+  placeholder port, not a usable one. `warp_register` strips it and pairs
+  the bare IP with a **fixed** port of `2408` (WARP's well-known primary UDP
+  port, and `wgcf`'s own default) rather than trusting that placeholder or
+  resolving the response's `endpoint.host` at runtime.
+- The response's (unmodeled) `policy.tunnel_protocol` field may say
+  `"masque"`, Cloudflare's newer default hint. This is irrelevant here:
+  sing-box has no MASQUE support, and the classic WireGuard fields this app
+  reads (`config.peers[0]`, `config.interface`) remain fully valid
+  regardless of that hint — again, exactly what `wgcf` relies on.
+
+**Known limitation (deliberate scope cut, not an oversight)**: deleting the
+resulting server via `servers_delete` does **not** deregister the device
+from Cloudflare's side. `crates/warp` does expose a `deregister()` function
+(and this app's own dev workflow uses it to clean up test registrations),
+but `servers_delete` isn't wired to call it in this pass — there's no
+`device_id`/`token` tracking on `ServerConfig` to key that call off of, and
+an orphaned anonymous WARP registration costs Cloudflare nothing and carries
+no account attached to it, so this isn't treated as urgent. A future pass
+could add those two fields to `ServerConfig` (WireGuard-only, like the
+existing `wireguard_*` fields) if cleaning up abandoned registrations turns
+out to matter.
 
 ## Backup & diagnostics
 
@@ -259,6 +306,111 @@ totals since the process started — this app doesn't compute, reset, or
 window them itself. Stopping and restarting the proxy resets them to zero
 along with everything else, since it's a fresh sing-box process each time.
 
+## sing-box dashboard
+
+`commands::dashboard::dashboard_open` opens SagerNet/sing-box-dashboard's
+official web UI in a second Tauri window, pointed at the same Clash API
+described in "Live connections" above — this is sing-box's own upstream
+monitoring/connections/logs dashboard, offered alongside (not instead of)
+this app's simpler built-in Connections tab. Mirrors the sibling Electron
+app, which bundles the same dashboard's built assets and opens them in a
+second `BrowserWindow`.
+
+**Fetched, not committed.** The dashboard's static build (the `gh-pages`
+branch of that repo — that branch *is* the Vite build output) is downloaded
+by `scripts/fetch-dashboard.mjs` (`npm run fetch:dashboard`) into
+`src-tauri/resources/dashboard/`, which is gitignored (large, third-party,
+reproducible from the script — same reasoning as `/.dev-bin/`) and listed
+under `bundle.resources` in `tauri.conf.json` so it ships in a packaged
+build. `dashboard_open` locates `index.html` via the same three-tier
+discovery convention as `commands::helper_windows`'s bundled-helper-binary
+lookup: `FERROFLOW_DASHBOARD_PATH` env var (pointing at the directory, not
+the file) → `<src-tauri crate dir>/resources/dashboard/` (dev convenience,
+anchored via `CARGO_MANIFEST_DIR` rather than the process's current working
+directory, since this asset specifically lives under `src-tauri/` regardless
+of where the app happens to be launched from) → Tauri's `resource_dir()`
+(packaged case). Missing assets (i.e. `fetch:dashboard` was never run) fail
+with `AppError{code:"dashboard_missing"}` rather than opening a blank/broken
+window.
+
+**Requires the proxy running first.** `dashboard_open` fails with
+`AppError{code:"proxy_not_running"}` if `core_manager::current_clash_api_port()`
+returns `None` — there is no Clash API port to point the dashboard at
+otherwise. The frontend button (`DashboardView`'s "Open sing-box dashboard",
+next to the Start/Stop controls) is disabled whenever `running` is `false`,
+same gating as those controls.
+
+**Connection-info mechanism (read from the fork's real fetched source, not
+assumed).** This fork of the dashboard takes **no URL query parameters at
+all** — its bundle (`assets/index-*.js`) has zero references to
+`URLSearchParams`/`location.search` anywhere; this was confirmed by
+downloading the actual `gh-pages` zip and grepping the minified bundle
+directly, since this detail varies per Clash-dashboard fork (Yacd/Razord/
+metacubexd all differ from this one). Its server list instead lives in
+`localStorage` under the key `sing-box-dashboard.servers`, JSON-shaped as
+`{ servers: { id, name, url, secret }[], activeId: string }`. (There is also
+a legacy singular `sing-box-dashboard.server` key — `{ url, secret }` — that
+the app reads and deletes exactly once, purely to migrate an old
+single-server install into the list format; `dashboard_open` deliberately
+does **not** rely on that path, since it only fires when `servers` has never
+been set at all, which would mean a second dashboard open silently kept
+pointing at a *previous* run's now-stale port — `clash_api_port` is a fresh
+ephemeral port every `core_manager` `start()` call.)
+
+`dashboard_open` instead seeds the modern `servers` key directly, via
+`WebviewWindowBuilder::initialization_script` (runs before any of the page's
+own scripts, on every navigation). The injected script reads whatever is
+already stored, upserts one entry keyed by the fixed id `ferroflow-local`
+with this run's `http://127.0.0.1:<clash_api_port>` and an empty `secret`
+(matching "No auth" above), preserves any other servers the user added by
+hand, and always sets `activeId` to `ferroflow-local` — so the dashboard
+connects to *this* run's Clash API immediately on open, every time, rather
+than requiring a manual pick or risking a stale entry. See
+`src-tauri/src/commands/dashboard.rs`'s module doc comment for the full
+byte-for-byte reasoning and the exact script template.
+
+**Known limitation: the current gh-pages build talks gRPC-Web, not the
+classic Clash REST API — verified against a real sing-box, not assumed.**
+Everything above is about getting the *address* of the local Clash API to
+the dashboard correctly, and that part is verified working (the injected
+`{id, name, url, secret}` entry is read back exactly as written — confirmed
+by opening the real fetched `index.html` and inspecting its "Edit server"
+dialog). But the dashboard's own connectivity layer
+(`src/api/daemon.ts` in the dashboard's source repo) exclusively speaks
+**gRPC-Web (Connect-RPC) to a `daemon.StartedService`** at that URL — there
+is no REST fallback in the current build at all, including for the basic
+overview/status view. This service is **not** one of sing-box's documented
+`experimental.clash_api` fields (checked against the live
+sing-box.sagernet.org docs: `external_controller`, `external_ui`, `secret`,
+`default_mode`, `access_control_allow_origin`, etc. — no `daemon`/gRPC
+option among them), and it is not served by either a stable `sing-box run`
+(tested against 1.13.19) or the newest available prerelease at the time of
+writing (1.14.0-rc.2) — both were started locally with `clash_api` enabled
+on a known port and both produced the dashboard's own
+"Failed to fetch" → "connection failed" state when pointed at that port,
+the same failure mode you'd see if the address were wrong. (Its
+`useDiagnosedConnectError`/`diagnoseConnection` heuristic then further
+mislabels this as "CORS blocked" specifically, since its own no-cors probe
+against *any* reachable port succeeds regardless of whether the right
+service is actually listening on it — sing-box's Clash API does in fact
+send `Access-Control-Allow-Origin: *`, confirmed via `curl`, so CORS itself
+is not the real problem here.)
+
+Net effect: **as of this writing, opening the dashboard will reliably show
+a "connection failed" state**, not because `dashboard_open`'s wiring is
+wrong, but because the upstream dashboard's rolling `gh-pages` build has
+moved to a next-generation sing-box daemon API ahead of any public sing-box
+release actually serving it. This mirrors, and is presumably the same
+underlying feature as, `core_manager`'s own longstanding note (see this
+crate's module doc comment) that "the gRPC status/connections stream
+(`daemon.StartedService`, sing-box 1.14+) is still a later pass" — i.e. this
+app doesn't implement that service either. Revisit `fetch-dashboard.mjs`
+once sing-box ships a stable, documented way to enable
+`daemon.StartedService` over HTTP (at which point `core_manager` would also
+need to start serving it, not just `clash_api`), or consider pinning an
+older dashboard commit/tag that still speaks the classic REST API if this
+gap persists and a working dashboard is wanted sooner.
+
 ## Connection history
 
 Distinct from "Live connections" above: instead of showing what's happening
@@ -348,14 +500,16 @@ surface.
 
 ## Deferred to phase 2 (do not build yet)
 
-WARP/Tailscale (WireGuard itself is now implemented — see "WireGuard"
-above), rule-resources (GeoIP/GeoSite `.srs` rule-set
+Tailscale (WireGuard itself and one-click Cloudflare WARP registration are
+now implemented — see "WireGuard" and "Cloudflare WARP" above),
+rule-resources (GeoIP/GeoSite `.srs` rule-set
 *file* management/updates — distinct from the basic domain/IP/process
 `RoutingRule` matching already implemented, see "Routing rules" above),
-speed test, sing-box dashboard embedding, window-chrome commands (Linux
-custom titlebar). Config backup/restore, a redacted diagnostic export,
-native file dialogs, and persisted connection history (opt-in, distinct from
-the live, in-memory connection list — see "Live connections" and
-"Connection history" above) are implemented. The Electron implementations of
+speed test, window-chrome commands (Linux custom titlebar). Config
+backup/restore, a redacted diagnostic export, native file dialogs, persisted
+connection history (opt-in, distinct from the live, in-memory connection
+list — see "Live connections" and "Connection history" above), and the
+sing-box dashboard (see "sing-box dashboard" above) are implemented. The
+Electron implementations of
 the still-deferred items are the reference for *behavior* once we get to
 them — see `FlowZ/src/main/services/` in the sibling Electron repo.

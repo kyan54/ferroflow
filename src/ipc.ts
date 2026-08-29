@@ -41,6 +41,10 @@ export const ipc = {
 
   subscriptionImport: (url: string) => invoke<UserConfig>("subscription_import", { url }),
 
+  warpRegister: () => invoke<UserConfig>("warp_register"),
+
+  dashboardOpen: () => invoke<void>("dashboard_open"),
+
   systemProxyStatus: () => invoke<SystemProxyStatus>("system_proxy_status"),
   platformInfo: () => invoke<PlatformInfo>("platform_info"),
 

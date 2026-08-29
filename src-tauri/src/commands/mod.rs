@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod config;
 pub mod connections;
+pub mod dashboard;
 pub mod helper;
 pub mod history;
 #[cfg(target_os = "windows")]
@@ -13,3 +14,4 @@ pub mod proxy;
 pub mod rules;
 pub mod subscription;
 pub mod system;
+pub mod warp;

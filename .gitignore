@@ -20,6 +20,13 @@ dist-ssr
 # bundled/committed — see crates/core-manager/src/lib.rs::locate_binary).
 /.dev-bin/
 
+# Fetched dev/build dependency, same reasoning as /.dev-bin/ above: the
+# SagerNet/sing-box-dashboard static build, downloaded by
+# `npm run fetch:dashboard` (scripts/fetch-dashboard.mjs) into
+# src-tauri/resources/dashboard/. Large, third-party, and reproducible from
+# that script -- never committed.
+/src-tauri/resources/dashboard/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

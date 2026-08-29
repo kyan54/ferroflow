@@ -19,6 +19,7 @@ export function DashboardView() {
   const selectServer = useAppStore((s) => s.selectServer);
   const startProxy = useAppStore((s) => s.startProxy);
   const stopProxy = useAppStore((s) => s.stopProxy);
+  const openDashboard = useAppStore((s) => s.openDashboard);
 
   useEffect(() => {
     refreshProxyStatus();
@@ -113,6 +114,17 @@ export function DashboardView() {
             No servers configured yet — add one in the Servers tab.
           </p>
         )}
+
+        <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+          <button
+            onClick={openDashboard}
+            disabled={!running}
+            title={!running ? "Start the proxy first" : undefined}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            Open sing-box dashboard
+          </button>
+        </div>
       </section>
 
       <section className="rounded-xl bg-white p-5 shadow dark:bg-slate-800">

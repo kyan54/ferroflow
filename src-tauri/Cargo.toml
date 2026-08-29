@@ -50,6 +50,7 @@ helper-macos = { path = "../crates/helper-macos" }
 helper-linux = { path = "../crates/helper-linux" }
 net = { workspace = true }
 subscription = { workspace = true }
+warp = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
