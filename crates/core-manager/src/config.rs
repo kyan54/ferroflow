@@ -10,12 +10,15 @@
 //! outbound matching the server's protocol plus a `direct` outbound (and a
 //! `block` outbound when a rule needs one), a `route.rules` array built from
 //! `UserConfig.rules` (domain/domain-suffix/domain-keyword/IP-CIDR/
-//! process-name matching only, no compound conditions, no GeoIP/GeoSite
-//! rule-set files), and a route whose `final` sends anything no rule matched
-//! through the proxy outbound. No DNS config, no TUN inbound configured here
-//! (see `tun.rs`).
+//! process-name matching, plus GeoIP/GeoSite `.srs` rule-set references via
+//! `RuleMatchType::RuleSet` -- see `build_rule_set_entries`/
+//! `build_route_rules` below -- no compound conditions), and a route whose
+//! `final` sends anything no rule matched through the proxy outbound. No DNS
+//! config, no TUN inbound configured here (see `tun.rs`).
 
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use shared_types::{Protocol, RoutingRule, RuleMatchType, RuleOutbound, ServerConfig, TlsConfig};
@@ -193,7 +196,10 @@ pub fn build_inbound(port: u16) -> Value {
 }
 
 /// Maps a `RuleMatchType` to the sing-box route-rule JSON field name it
-/// corresponds to.
+/// corresponds to. `RuleSet` is handled separately by `build_route_rules`
+/// (its shape is `{"rule_set": [...], ...}` rather than
+/// `{"<field>": [...], ...}` with literal values) -- this arm exists only so
+/// the match stays exhaustive; it's never actually reached for `RuleSet`.
 fn match_field_name(match_type: RuleMatchType) -> &'static str {
     match match_type {
         RuleMatchType::Domain => "domain",
@@ -201,7 +207,19 @@ fn match_field_name(match_type: RuleMatchType) -> &'static str {
         RuleMatchType::DomainKeyword => "domain_keyword",
         RuleMatchType::IpCidr => "ip_cidr",
         RuleMatchType::ProcessName => "process_name",
+        RuleMatchType::RuleSet => "rule_set",
     }
+}
+
+/// Tag prefix for a generated `route.rule_set` entry, derived from the
+/// referenced resource's `RuleResourceInfo.id` -- kept distinct from the
+/// bare id so it can never collide with `PROXY_OUTBOUND_TAG`/
+/// `DIRECT_OUTBOUND_TAG`/`BLOCK_OUTBOUND_TAG` even if a resource happened to
+/// be named e.g. "proxy".
+const RULE_SET_TAG_PREFIX: &str = "ruleset-";
+
+fn rule_set_tag(resource_id: &str) -> String {
+    format!("{RULE_SET_TAG_PREFIX}{resource_id}")
 }
 
 /// Maps a `RuleOutbound` to the tag of the outbound it should route to.
@@ -220,17 +238,94 @@ fn outbound_tag(outbound: RuleOutbound) -> &'static str {
 /// doesn't build compound-condition rules — plus an `outbound` tag. List
 /// order is preserved, matching sing-box's top-to-bottom first-match-wins
 /// evaluation.
-pub fn build_route_rules(rules: &[RoutingRule]) -> Vec<Value> {
+///
+/// `RuleMatchType::RuleSet` is the one exception to "match field holds
+/// literal values": its `values` are `RuleResourceInfo.id`s, resolved against
+/// `resource_paths` (id -> downloaded `.srs` file path, built by the
+/// `src-tauri` command layer from `UserConfig.rule_resources` — see
+/// `CoreManager::start`). An id with no entry in `resource_paths` (resource
+/// never downloaded, or deleted since the rule was created) is skipped with
+/// a `tracing::warn!` rather than panicking or producing a broken config; if
+/// *every* id in a `RuleSet` rule's `values` is unresolvable, the whole rule
+/// is skipped the same way an empty-values rule would be.
+pub fn build_route_rules(rules: &[RoutingRule], resource_paths: &HashMap<String, PathBuf>) -> Vec<Value> {
     rules
         .iter()
         .filter(|rule| rule.enabled && !rule.values.is_empty())
-        .map(|rule| {
-            json!({
-                match_field_name(rule.match_type): rule.values,
-                "outbound": outbound_tag(rule.outbound),
-            })
+        .filter_map(|rule| {
+            if rule.match_type == RuleMatchType::RuleSet {
+                let tags: Vec<String> = rule
+                    .values
+                    .iter()
+                    .filter_map(|id| {
+                        if resource_paths.contains_key(id) {
+                            Some(rule_set_tag(id))
+                        } else {
+                            tracing::warn!(
+                                "rule '{}' references rule-set resource '{}' with no known downloaded path -- skipping it",
+                                rule.name,
+                                id
+                            );
+                            None
+                        }
+                    })
+                    .collect();
+
+                if tags.is_empty() {
+                    tracing::warn!(
+                        "rule '{}' has no resolvable rule-set resources -- skipping the whole rule",
+                        rule.name
+                    );
+                    return None;
+                }
+
+                Some(json!({
+                    "rule_set": tags,
+                    "outbound": outbound_tag(rule.outbound),
+                }))
+            } else {
+                Some(json!({
+                    match_field_name(rule.match_type): rule.values,
+                    "outbound": outbound_tag(rule.outbound),
+                }))
+            }
         })
         .collect()
+}
+
+/// Builds the top-level `route.rule_set` array: one `{"type": "local",
+/// "tag": ..., "format": "binary", "path": ...}` entry per **distinct**
+/// resource id actually referenced by an *enabled* `RuleSet`-type rule that
+/// has a known path in `resource_paths` — an id referenced by a disabled
+/// rule, or with no known path, contributes no entry (the corresponding
+/// `route.rules` entry from `build_route_rules` already dropped that
+/// reference, so emitting an unused `rule_set` entry here would just be
+/// dead weight, not a config sing-box would reject — but this module's
+/// existing convention is to never emit unused sections, see the `block`
+/// outbound in `build_config_with_inbound`). Referenced more than once
+/// across multiple rules still yields exactly one entry, tagged the same
+/// way both times via `rule_set_tag`.
+fn build_rule_set_entries(rules: &[RoutingRule], resource_paths: &HashMap<String, PathBuf>) -> Vec<Value> {
+    let mut seen = HashSet::new();
+    let mut entries = Vec::new();
+
+    for rule in rules.iter().filter(|r| r.enabled && r.match_type == RuleMatchType::RuleSet) {
+        for id in &rule.values {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(path) = resource_paths.get(id) {
+                entries.push(json!({
+                    "type": "local",
+                    "tag": rule_set_tag(id),
+                    "format": "binary",
+                    "path": path.to_string_lossy(),
+                }));
+            }
+        }
+    }
+
+    entries
 }
 
 /// Assembles the full sing-box config for a single-server MVP run: one
@@ -248,9 +343,10 @@ pub fn build_config(
     server: &ServerConfig,
     inbound_port: u16,
     rules: &[RoutingRule],
+    resource_paths: &HashMap<String, PathBuf>,
     clash_api_port: u16,
 ) -> Value {
-    build_config_with_inbound(server, build_inbound(inbound_port), rules, clash_api_port)
+    build_config_with_inbound(server, build_inbound(inbound_port), rules, resource_paths, clash_api_port)
 }
 
 /// Assembles the full sing-box config for a single-server TUN-mode run: one
@@ -263,11 +359,17 @@ pub fn build_config(
 /// `clash_api_port` — see `build_config`'s doc comment; TUN mode gets the
 /// same Clash API block since traffic visibility shouldn't depend on which
 /// inbound is active.
-pub fn build_tun_config(server: &ServerConfig, rules: &[RoutingRule], clash_api_port: u16) -> Value {
+pub fn build_tun_config(
+    server: &ServerConfig,
+    rules: &[RoutingRule],
+    resource_paths: &HashMap<String, PathBuf>,
+    clash_api_port: u16,
+) -> Value {
     build_config_with_inbound(
         server,
         tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME),
         rules,
+        resource_paths,
         clash_api_port,
     )
 }
@@ -292,6 +394,7 @@ fn build_config_with_inbound(
     server: &ServerConfig,
     inbound: Value,
     rules: &[RoutingRule],
+    resource_paths: &HashMap<String, PathBuf>,
     clash_api_port: u16,
 ) -> Value {
     let proxy = build_outbound(server);
@@ -320,6 +423,20 @@ fn build_config_with_inbound(
         }));
     }
 
+    let rule_set_entries = build_rule_set_entries(rules, resource_paths);
+    let mut route = json!({
+        "rules": build_route_rules(rules, resource_paths),
+        "final": PROXY_OUTBOUND_TAG,
+    });
+    // Emitted before `rules` is assembled above only conceptually (JSON
+    // object key order carries no meaning to sing-box) -- inserted here,
+    // and only when non-empty, matching this module's existing convention
+    // of never emitting unused/empty sections (see the `block` outbound
+    // above).
+    if !rule_set_entries.is_empty() {
+        route["rule_set"] = json!(rule_set_entries);
+    }
+
     let mut cfg = json!({
         "log": {
             "level": "info",
@@ -327,10 +444,7 @@ fn build_config_with_inbound(
         },
         "inbounds": [inbound],
         "outbounds": outbounds,
-        "route": {
-            "rules": build_route_rules(rules),
-            "final": PROXY_OUTBOUND_TAG,
-        },
+        "route": route,
         "experimental": {
             "clash_api": {
                 "external_controller": format!("{}:{}", Ipv4Addr::LOCALHOST, clash_api_port),
@@ -507,7 +621,7 @@ mod tests {
             Some("/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=".into());
         server.wireguard_local_address = Some("10.0.0.2/32".into());
 
-        let cfg = build_config(&server, 12345, &[], 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
 
         assert!(cfg["outbounds"]
             .as_array()
@@ -527,7 +641,7 @@ mod tests {
     #[test]
     fn non_wireguard_server_has_no_endpoints_key() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
         assert!(cfg.get("endpoints").is_none());
     }
 
@@ -583,7 +697,7 @@ mod tests {
     #[test]
     fn full_config_has_mixed_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
         assert_eq!(cfg["inbounds"][0]["type"], "mixed");
         assert_eq!(cfg["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(cfg["inbounds"][0]["listen_port"], 12345);
@@ -596,7 +710,7 @@ mod tests {
     #[test]
     fn full_tun_config_has_tun_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_tun_config(&server, &[], 9999);
+        let cfg = build_tun_config(&server, &[], &HashMap::new(), 9999);
         assert_eq!(cfg["inbounds"][0]["type"], "tun");
         assert_eq!(cfg["inbounds"][0]["interface_name"], DEFAULT_TUN_INTERFACE_NAME);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
@@ -619,7 +733,7 @@ mod tests {
     #[test]
     fn route_rule_domain_maps_to_domain_field() {
         let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0]["domain"], json!(["example.com"]));
         assert_eq!(rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
@@ -628,7 +742,7 @@ mod tests {
     #[test]
     fn route_rule_domain_suffix_maps_to_domain_suffix_field() {
         let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert_eq!(rules[0]["domain_suffix"], json!([".cn"]));
         assert_eq!(rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
     }
@@ -636,7 +750,7 @@ mod tests {
     #[test]
     fn route_rule_domain_keyword_maps_to_domain_keyword_field() {
         let r = rule(RuleMatchType::DomainKeyword, &["ads"], RuleOutbound::Block);
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert_eq!(rules[0]["domain_keyword"], json!(["ads"]));
         assert_eq!(rules[0]["outbound"], BLOCK_OUTBOUND_TAG);
     }
@@ -644,7 +758,7 @@ mod tests {
     #[test]
     fn route_rule_ip_cidr_maps_to_ip_cidr_field() {
         let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert_eq!(rules[0]["ip_cidr"], json!(["10.0.0.0/8"]));
         assert_eq!(rules[0]["outbound"], BLOCK_OUTBOUND_TAG);
     }
@@ -652,7 +766,7 @@ mod tests {
     #[test]
     fn route_rule_process_name_maps_to_process_name_field() {
         let r = rule(RuleMatchType::ProcessName, &["chrome.exe"], RuleOutbound::Proxy);
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert_eq!(rules[0]["process_name"], json!(["chrome.exe"]));
         assert_eq!(rules[0]["outbound"], PROXY_OUTBOUND_TAG);
     }
@@ -661,14 +775,14 @@ mod tests {
     fn disabled_rule_is_excluded() {
         let mut r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
         r.enabled = false;
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert!(rules.is_empty());
     }
 
     #[test]
     fn empty_values_rule_is_excluded() {
         let r = rule(RuleMatchType::Domain, &[], RuleOutbound::Direct);
-        let rules = build_route_rules(&[r]);
+        let rules = build_route_rules(&[r], &HashMap::new());
         assert!(rules.is_empty());
     }
 
@@ -676,7 +790,7 @@ mod tests {
     fn block_outbound_absent_when_no_block_rules() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r], 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert!(cfg["outbounds"]
             .as_array()
@@ -689,7 +803,7 @@ mod tests {
     fn block_outbound_present_when_enabled_block_rule_exists() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
-        let cfg = build_config(&server, 12345, &[r], 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
         let outbounds = cfg["outbounds"].as_array().unwrap();
         assert_eq!(outbounds.len(), 3);
         assert!(outbounds.iter().any(|o| o["type"] == "block" && o["tag"] == BLOCK_OUTBOUND_TAG));
@@ -700,7 +814,7 @@ mod tests {
         let server = base_server(Protocol::Trojan);
         let mut r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
         r.enabled = false;
-        let cfg = build_config(&server, 12345, &[r], 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
     }
 
@@ -708,10 +822,98 @@ mod tests {
     fn route_rules_appear_in_generated_config() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r], 9999);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
         assert_eq!(cfg["route"]["rules"].as_array().unwrap().len(), 1);
         assert_eq!(cfg["route"]["rules"][0]["domain_suffix"], json!([".cn"]));
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn rule_set_rule_with_known_path_produces_rule_set_and_route_rules_shape() {
+        let server = base_server(Protocol::Trojan);
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("netflix".to_string(), PathBuf::from("/data/rule-resources/geosite-netflix.srs"));
+
+        let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999);
+
+        let rule_set_entries = cfg["route"]["rule_set"].as_array().expect("rule_set array present");
+        assert_eq!(rule_set_entries.len(), 1);
+        assert_eq!(rule_set_entries[0]["type"], "local");
+        assert_eq!(rule_set_entries[0]["format"], "binary");
+        assert_eq!(rule_set_entries[0]["tag"], "ruleset-netflix");
+        assert_eq!(rule_set_entries[0]["path"], "/data/rule-resources/geosite-netflix.srs");
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 1);
+        assert_eq!(route_rules[0]["rule_set"], json!(["ruleset-netflix"]));
+        assert_eq!(route_rules[0]["outbound"], PROXY_OUTBOUND_TAG);
+        assert!(route_rules[0].get("domain").is_none(), "a RuleSet rule must not also carry a literal match field");
+    }
+
+    #[test]
+    fn rule_set_rule_with_unknown_id_is_skipped_without_crashing() {
+        let server = base_server(Protocol::Trojan);
+        // Empty map -- "netflix" was never downloaded (or was deleted).
+        let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999);
+
+        assert!(cfg["route"].get("rule_set").is_none(), "no rule_set entries should be emitted for an unknown id");
+        assert!(cfg["route"]["rules"].as_array().unwrap().is_empty(), "the whole rule should be dropped, not just the unknown id");
+    }
+
+    #[test]
+    fn rule_set_rule_partially_unknown_ids_only_emits_resolvable_ones() {
+        let server = base_server(Protocol::Trojan);
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("netflix".to_string(), PathBuf::from("/data/geosite-netflix.srs"));
+        // "youtube" deliberately absent from resource_paths.
+
+        let r = rule(RuleMatchType::RuleSet, &["netflix", "youtube"], RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999);
+
+        let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
+        assert_eq!(rule_set_entries.len(), 1, "only the resolvable id should get a rule_set entry");
+        assert_eq!(rule_set_entries[0]["tag"], "ruleset-netflix");
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules[0]["rule_set"], json!(["ruleset-netflix"]));
+    }
+
+    #[test]
+    fn mixed_rule_set_and_inline_domain_rules_both_appear() {
+        let server = base_server(Protocol::Trojan);
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("cn".to_string(), PathBuf::from("/data/geosite-cn.srs"));
+
+        let rule_set_rule = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Direct);
+        let domain_rule = rule(RuleMatchType::DomainSuffix, &[".example.com"], RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[rule_set_rule, domain_rule], &resource_paths, 9999);
+
+        let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
+        assert_eq!(rule_set_entries.len(), 1);
+        assert_eq!(rule_set_entries[0]["tag"], "ruleset-cn");
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 2);
+        assert_eq!(route_rules[0]["rule_set"], json!(["ruleset-cn"]));
+        assert_eq!(route_rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
+        assert_eq!(route_rules[1]["domain_suffix"], json!([".example.com"]));
+        assert_eq!(route_rules[1]["outbound"], PROXY_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn rule_set_referenced_by_two_rules_yields_one_rule_set_entry() {
+        let server = base_server(Protocol::Trojan);
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("cn".to_string(), PathBuf::from("/data/geosite-cn.srs"));
+
+        let r1 = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Direct);
+        let r2 = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Block);
+        let cfg = build_config(&server, 12345, &[r1, r2], &resource_paths, 9999);
+
+        let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
+        assert_eq!(rule_set_entries.len(), 1, "the same resource id referenced twice should only be emitted once");
     }
 
     /// Real validation against an actual sing-box binary's `check -c <file>`
@@ -757,7 +959,7 @@ mod tests {
         ];
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &rules, 9999);
+        let cfg = build_config(&server, 12345, &rules, &HashMap::new(), 9999);
 
         // Sanity-check the block outbound really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -808,7 +1010,7 @@ mod tests {
         assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], 19999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 19999);
 
         // Sanity-check the clash_api block really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -880,7 +1082,7 @@ mod tests {
             Some("MihvP+gV2j8pb18XF/iI8DrXLj+AfScAscLfmlM2oLU=".into());
         server.wireguard_local_address = Some("10.0.0.2/32".into());
 
-        let cfg = build_config(&server, 12345, &[], 9999);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999);
 
         // Sanity-check the endpoint shape before handing this to sing-box,
         // so a failed `check` clearly means "sing-box rejected the shape"
@@ -910,6 +1112,78 @@ mod tests {
         assert!(
             output.status.success(),
             "sing-box check rejected the generated wireguard config.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// The most important check in this whole rule-resources feature: a
+    /// *real* downloaded `.srs` file, referenced by a `RuleSet` rule, fed to
+    /// a real `sing-box check`. Everything else in this file only asserts
+    /// against the JSON shape this module produces -- a malformed
+    /// `route.rule_set`/`rule_set`-reference shape (wrong field name, wrong
+    /// `format`, a `path` sing-box can't open) would only ever surface here.
+    ///
+    /// Downloads `geosite-netflix.srs` for real via
+    /// `rule_resources::download` (same real, small, confirmed-working
+    /// upstream file `rule_resources`'s own ignored integration test uses),
+    /// to a temp path, references it via a `RuleSet`-type `RoutingRule`, and
+    /// asks the real binary to validate the resulting config. Not run by
+    /// default (`#[ignore]`) since it needs both a real binary at
+    /// `<workspace root>/.dev-bin/sing-box[.exe]` *and* real network access
+    /// to `raw.githubusercontent.com` -- run manually with:
+    /// `cargo test -p core-manager --all-targets -- --ignored real_singbox`
+    #[tokio::test]
+    #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/ and real network access"]
+    async fn real_singbox_check_accepts_config_with_a_real_downloaded_rule_set() {
+        use std::process::Command;
+
+        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary =
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.dev-bin")).join(binary_name);
+        assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
+
+        let url = rule_resources::resource_url(rule_resources::ResourceCategory::Geosite, "netflix", None);
+        let mut srs_path = std::env::temp_dir();
+        srs_path.push(format!("ferroflow-core-manager-real-rule-set-{}.srs", std::process::id()));
+        let _ = std::fs::remove_file(&srs_path);
+
+        rule_resources::download(&url, &srs_path)
+            .await
+            .expect("real download of geosite-netflix.srs should succeed");
+        assert!(srs_path.is_file(), "downloaded .srs file should exist at {}", srs_path.display());
+
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("netflix".to_string(), srs_path.clone());
+
+        let server = base_server(Protocol::Trojan);
+        let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999);
+
+        // Sanity-check the shape before handing this to sing-box, so a
+        // failed `check` clearly means "sing-box rejected the shape" rather
+        // than "we forgot to build it".
+        assert_eq!(cfg["route"]["rule_set"][0]["type"], "local");
+        assert_eq!(cfg["route"]["rule_set"][0]["format"], "binary");
+        assert_eq!(cfg["route"]["rules"][0]["rule_set"], json!(["ruleset-netflix"]));
+
+        let mut config_path = std::env::temp_dir();
+        config_path.push(format!("ferroflow-config-real-rule-set-check-{}.json", std::process::id()));
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+
+        let output = Command::new(&binary)
+            .arg("check")
+            .arg("-c")
+            .arg(&config_path)
+            .output()
+            .expect("failed to run sing-box check");
+
+        let _ = std::fs::remove_file(&config_path);
+        let _ = std::fs::remove_file(&srs_path);
+
+        assert!(
+            output.status.success(),
+            "sing-box check rejected the generated config with a real rule_set reference.\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

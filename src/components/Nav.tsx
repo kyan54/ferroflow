@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-export type View = "dashboard" | "servers" | "rules" | "connections" | "settings";
+export type View = "dashboard" | "servers" | "rules" | "ruleResources" | "connections" | "settings";
 
 function icon(props: SVGProps<SVGSVGElement>) {
   return {
@@ -48,6 +48,15 @@ function ConnectionsIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function RuleResourcesIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...icon(props)}>
+      <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
 function SettingsIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...icon(props)}>
@@ -61,6 +70,7 @@ const TABS: { id: View; label: string; icon: typeof DashboardIcon }[] = [
   { id: "dashboard", label: "Dashboard", icon: DashboardIcon },
   { id: "servers", label: "Servers", icon: ServersIcon },
   { id: "rules", label: "Rules", icon: RulesIcon },
+  { id: "ruleResources", label: "Rule resources", icon: RuleResourcesIcon },
   { id: "connections", label: "Connections", icon: ConnectionsIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];

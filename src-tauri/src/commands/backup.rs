@@ -389,6 +389,10 @@ mod tests {
             minimize_to_tray: true,
             language: Some("en".to_string()),
             connection_history_enabled: false,
+            rule_resources: Vec::new(),
+            github_accel_prefix: None,
+            rule_resource_auto_update: false,
+            rule_resource_auto_update_interval_hours: 24,
         }
     }
 

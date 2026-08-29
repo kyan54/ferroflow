@@ -5,12 +5,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CatalogEntry,
   ConnectionsSnapshot,
   HelperStatus,
   HistoryEntry,
   PlatformInfo,
   ProxyStatus,
   RoutingRule,
+  RuleResourceCategory,
   ServerConfig,
   SystemProxyStatus,
   UserConfig,
@@ -27,6 +29,14 @@ export const ipc = {
   rulesUpdate: (rule: RoutingRule) => invoke<UserConfig>("rules_update", { rule }),
   rulesDelete: (id: string) => invoke<UserConfig>("rules_delete", { id }),
   rulesReorder: (orderedIds: string[]) => invoke<UserConfig>("rules_reorder", { orderedIds }),
+
+  ruleResourcesCatalog: () => invoke<CatalogEntry[]>("rule_resources_catalog"),
+  ruleResourcesDownload: (category: RuleResourceCategory, name: string) =>
+    invoke<UserConfig>("rule_resources_download", { category, name }),
+  ruleResourcesDownloadCustom: (name: string, category: RuleResourceCategory, url: string) =>
+    invoke<UserConfig>("rule_resources_download_custom", { name, category, url }),
+  ruleResourcesUpdateAll: () => invoke<UserConfig>("rule_resources_update_all"),
+  ruleResourcesDelete: (id: string) => invoke<UserConfig>("rule_resources_delete", { id }),
 
   proxyStart: (serverId: string) => invoke<ProxyStatus>("proxy_start", { serverId }),
   proxyStop: () => invoke<ProxyStatus>("proxy_stop"),

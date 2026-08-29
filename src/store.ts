@@ -3,12 +3,14 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { ipc } from "./ipc";
 import { appErrorMessage } from "./types";
 import type {
+  CatalogEntry,
   ConnectionsSnapshot,
   HelperStatus,
   HistoryEntry,
   PlatformInfo,
   ProxyStatus,
   RoutingRule,
+  RuleResourceCategory,
   ServerConfig,
   SystemProxyStatus,
   UserConfig,
@@ -36,12 +38,14 @@ interface AppStore {
   helperStatus: HelperStatus | null;
   connectionsSnapshot: ConnectionsSnapshot | null;
   historyEntries: HistoryEntry[];
+  ruleResourceCatalog: CatalogEntry[];
 
   configLoading: boolean;
   proxyBusy: boolean;
   helperBusy: boolean;
   subscriptionBusy: boolean;
   warpBusy: boolean;
+  ruleResourceBusy: boolean;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], message: string) => void;
@@ -82,6 +86,12 @@ interface AppStore {
   exportBackup: () => Promise<void>;
   importBackup: () => Promise<void>;
   exportDiagnostic: () => Promise<void>;
+
+  refreshRuleResourceCatalog: () => Promise<void>;
+  downloadRuleResource: (category: RuleResourceCategory, name: string) => Promise<void>;
+  downloadCustomRuleResource: (name: string, category: RuleResourceCategory, url: string) => Promise<void>;
+  updateAllRuleResources: () => Promise<void>;
+  deleteRuleResource: (id: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -92,12 +102,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   helperStatus: null,
   connectionsSnapshot: null,
   historyEntries: [],
+  ruleResourceCatalog: [],
 
   configLoading: false,
   proxyBusy: false,
   helperBusy: false,
   subscriptionBusy: false,
   warpBusy: false,
+  ruleResourceBusy: false,
 
   toasts: [],
   pushToast: (kind, message) => {
@@ -461,6 +473,64 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("success", "Diagnostic report exported");
     } catch (err) {
       get().pushToast("error", `Failed to export diagnostic report: ${appErrorMessage(err)}`);
+    }
+  },
+
+  refreshRuleResourceCatalog: async () => {
+    try {
+      const ruleResourceCatalog = await ipc.ruleResourcesCatalog();
+      set({ ruleResourceCatalog });
+    } catch (err) {
+      get().pushToast("error", `Failed to load rule-resource catalog: ${appErrorMessage(err)}`);
+    }
+  },
+
+  downloadRuleResource: async (category, name) => {
+    set({ ruleResourceBusy: true });
+    try {
+      const config = await ipc.ruleResourcesDownload(category, name);
+      set({ config });
+      get().pushToast("success", `Downloaded "${name}"`);
+    } catch (err) {
+      get().pushToast("error", `Failed to download rule resource: ${appErrorMessage(err)}`);
+    } finally {
+      set({ ruleResourceBusy: false });
+    }
+  },
+
+  downloadCustomRuleResource: async (name, category, url) => {
+    set({ ruleResourceBusy: true });
+    try {
+      const config = await ipc.ruleResourcesDownloadCustom(name, category, url);
+      set({ config });
+      get().pushToast("success", `Downloaded "${name}"`);
+    } catch (err) {
+      get().pushToast("error", `Failed to download rule resource: ${appErrorMessage(err)}`);
+    } finally {
+      set({ ruleResourceBusy: false });
+    }
+  },
+
+  updateAllRuleResources: async () => {
+    set({ ruleResourceBusy: true });
+    try {
+      const config = await ipc.ruleResourcesUpdateAll();
+      set({ config });
+      get().pushToast("success", "Rule resources updated");
+    } catch (err) {
+      get().pushToast("error", `Failed to update rule resources: ${appErrorMessage(err)}`);
+    } finally {
+      set({ ruleResourceBusy: false });
+    }
+  },
+
+  deleteRuleResource: async (id) => {
+    try {
+      const config = await ipc.ruleResourcesDelete(id);
+      set({ config });
+      get().pushToast("success", "Rule resource removed");
+    } catch (err) {
+      get().pushToast("error", `Failed to delete rule resource: ${appErrorMessage(err)}`);
     }
   },
 }));

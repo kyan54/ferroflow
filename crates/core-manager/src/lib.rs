@@ -16,6 +16,7 @@ pub mod history;
 pub mod process;
 pub mod tun;
 
+use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Mutex as StdMutex;
@@ -188,6 +189,16 @@ impl CoreManager {
     /// `config::build_route_rules` for how disabled/empty-values rules are
     /// filtered out and mapped to sing-box `route.rules` entries.
     ///
+    /// `resource_paths` maps a downloaded rule-set resource's id (see
+    /// `shared_types::RuleResourceInfo::id`) to its `.srs` file's absolute
+    /// path on disk -- built by the caller (`src-tauri`'s `proxy_start`
+    /// command) from `UserConfig.rule_resources` plus the app's known
+    /// rule-resources storage directory convention. Threaded straight
+    /// through to `config::build_config`/`build_tun_config`; an empty map is
+    /// fine when no `RuleMatchType::RuleSet` rule is in play (every such
+    /// rule is then skipped with a `tracing::warn!`, same as an id that's
+    /// individually missing -- see `config::build_route_rules`).
+    ///
     /// `connection_history_enabled` is the caller's current
     /// `UserConfig.connection_history_enabled` (opt-in, default `false`) —
     /// when `true` *and* a path has been configured via `set_history_path`,
@@ -207,6 +218,7 @@ impl CoreManager {
         server: &ServerConfig,
         mode_type: ProxyModeType,
         rules: &[RoutingRule],
+        resource_paths: &HashMap<String, PathBuf>,
         connection_history_enabled: bool,
     ) -> AppResult<ProxyStatus> {
         let mut guard = self.running.lock().await;
@@ -234,7 +246,7 @@ impl CoreManager {
                     )
                 })?;
 
-                let cfg = config::build_config(server, port, rules, clash_api_port);
+                let cfg = config::build_config(server, port, rules, resource_paths, clash_api_port);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -314,7 +326,7 @@ impl CoreManager {
                     )
                 })?;
 
-                let cfg = config::build_tun_config(server, rules, clash_api_port);
+                let cfg = config::build_tun_config(server, rules, resource_paths, clash_api_port);
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -661,7 +673,10 @@ mod tests {
     async fn start_with_missing_binary_returns_core_start_failed() {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::SystemProxy, &[], false).await.unwrap_err();
+        let err = manager
+            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false)
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "core_start_failed");
     }
 
@@ -673,7 +688,10 @@ mod tests {
         // this test environment) and mask a routing bug.
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::Manual, &[], false).await.unwrap_err();
+        let err = manager
+            .start(&server, ProxyModeType::Manual, &[], &HashMap::new(), false)
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "core_start_failed");
     }
 
@@ -687,7 +705,10 @@ mod tests {
         // create a TUN interface).
         let manager = CoreManager::with_binary_path("does-not-matter-for-this-path");
         let server = test_server();
-        let err = manager.start(&server, ProxyModeType::Tun, &[], false).await.unwrap_err();
+        let err = manager
+            .start(&server, ProxyModeType::Tun, &[], &HashMap::new(), false)
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "helper_unavailable");
     }
 
@@ -720,7 +741,7 @@ mod tests {
         let server = test_server();
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], false)
+            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false)
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);

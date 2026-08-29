@@ -29,6 +29,11 @@ pub fn run() {
             commands::rules::rules_update,
             commands::rules::rules_delete,
             commands::rules::rules_reorder,
+            commands::rule_resources::rule_resources_catalog,
+            commands::rule_resources::rule_resources_download,
+            commands::rule_resources::rule_resources_download_custom,
+            commands::rule_resources::rule_resources_update_all,
+            commands::rule_resources::rule_resources_delete,
             commands::subscription::subscription_import,
             commands::warp::warp_register,
             commands::system::system_proxy_status,
@@ -46,6 +51,11 @@ pub fn run() {
             // Must run before any `proxy_start` could occur -- see
             // `state::init_history_path`'s doc comment.
             state::init_history_path(app.handle());
+            // Standalone background task (not tied to proxy start/stop --
+            // see its doc comment) that re-downloads tracked rule-set
+            // resources on an interval when `rule_resource_auto_update` is
+            // on. Started once here, for the app's whole lifetime.
+            commands::rule_resources::spawn_auto_update_task(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -52,6 +52,18 @@ pub fn history_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("connection-history.jsonl"))
 }
 
+/// Directory downloaded GeoIP/GeoSite `.srs` rule-set resources are stored
+/// in (`commands::rule_resources`) -- individual files inside it are named
+/// `<category>-<name>.srs` (e.g. `geosite-netflix.srs`), matching the bare
+/// upstream filename convention `rule_resources::resource_url` builds URLs
+/// from. Same "resolve on demand, no app-data knowledge baked into
+/// `core-manager`/`rule-resources` themselves" convention as `config_path`/
+/// `history_path` above.
+pub fn rule_resources_dir(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_config_dir().ok()?;
+    Some(dir.join("rule-resources"))
+}
+
 /// Configures `core_manager`'s history log path once `AppHandle` is
 /// available -- mirrors `load_persisted_helper_token`'s exact reasoning:
 /// `CoreManager` is constructed with no app-data-directory knowledge of its

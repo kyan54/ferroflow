@@ -1,0 +1,19 @@
+[package]
+name = "rule-resources"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+# rustls, not native-tls/OpenSSL, so Linux CI doesn't need system OpenSSL dev
+# packages -- matches crates/subscription's fetch.rs / crates/core-manager's
+# reqwest dependency shape exactly, so the workspace doesn't end up with two
+# different TLS backends.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

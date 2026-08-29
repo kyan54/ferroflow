@@ -6,6 +6,7 @@ members = [
     "crates/core-manager",
     "crates/net",
     "crates/subscription",
+    "crates/rule-resources",
     "crates/warp",
     "crates/helper-proto",
     "crates/helper-client",
@@ -37,4 +38,5 @@ helper-client = { path = "crates/helper-client" }
 core-manager = { path = "crates/core-manager" }
 net = { path = "crates/net" }
 subscription = { path = "crates/subscription" }
+rule-resources = { path = "crates/rule-resources" }
 warp = { path = "crates/warp" }

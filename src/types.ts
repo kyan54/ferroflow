@@ -64,13 +64,20 @@ export interface ProxyStatus {
   currentServerId?: string | null;
 }
 
-export type RuleMatchType = "domain" | "domainSuffix" | "domainKeyword" | "ipCidr" | "processName";
+export type RuleMatchType =
+  | "domain"
+  | "domainSuffix"
+  | "domainKeyword"
+  | "ipCidr"
+  | "processName"
+  | "ruleSet";
 export const RULE_MATCH_TYPES: RuleMatchType[] = [
   "domain",
   "domainSuffix",
   "domainKeyword",
   "ipCidr",
   "processName",
+  "ruleSet",
 ];
 
 export type RuleOutbound = "proxy" | "direct" | "block";
@@ -81,9 +88,41 @@ export interface RoutingRule {
   name: string;
   enabled: boolean;
   matchType: RuleMatchType;
-  /** One or more raw match values (domains/suffixes/keywords/CIDRs/process names depending on `matchType`). */
+  /**
+   * One or more raw match values -- meaning depends on `matchType`:
+   * - "domain"/"domainSuffix"/"domainKeyword"/"ipCidr"/"processName": literal
+   *   values typed in by hand.
+   * - "ruleSet": one or more `RuleResourceInfo.id`s of already-downloaded
+   *   rule-set resources (see `UserConfig.ruleResources`) -- not literal
+   *   values. `RuleForm` only lets a "ruleSet" rule reference resources that
+   *   have actually been downloaded.
+   */
   values: string[];
   outbound: RuleOutbound;
+}
+
+export type RuleResourceCategory = "geosite" | "geoIp";
+export const RULE_RESOURCE_CATEGORIES: RuleResourceCategory[] = ["geosite", "geoIp"];
+
+/** One downloaded GeoIP/GeoSite `.srs` rule-set resource -- see
+ * `crates/shared-types::RuleResourceInfo`. */
+export interface RuleResourceInfo {
+  id: string;
+  name: string;
+  category: RuleResourceCategory;
+  isBuiltin: boolean;
+  sourceUrl: string;
+  sizeBytes: number;
+  sha256: string;
+  /** RFC3339 timestamp string of the last successful download/update. */
+  downloadedAt: string;
+}
+
+/** One entry of the curated built-in catalog (`ipc.ruleResourcesCatalog`). */
+export interface CatalogEntry {
+  name: string;
+  category: RuleResourceCategory;
+  label: string;
 }
 
 export interface UserConfig {
@@ -99,6 +138,16 @@ export interface UserConfig {
   language?: string | null;
   /** Opt-in, off by default -- see the "Record connection history" toggle in SettingsView. */
   connectionHistoryEnabled: boolean;
+
+  /** Downloaded GeoIP/GeoSite `.srs` rule-set resources -- see RuleResourcesView. */
+  ruleResources: RuleResourceInfo[];
+  /** Optional GitHub-acceleration mirror prefix (e.g. "https://ghproxy.com/"),
+   * prepended in front of the real raw.githubusercontent.com URL. */
+  githubAccelPrefix?: string | null;
+  /** Opt-in, off by default: periodically re-download every tracked rule resource. */
+  ruleResourceAutoUpdate: boolean;
+  /** How often the auto-update task wakes, when `ruleResourceAutoUpdate` is on. */
+  ruleResourceAutoUpdateIntervalHours: number;
 }
 
 export type HelperPlatform = "windows" | "macos" | "linux";

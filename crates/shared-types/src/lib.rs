@@ -25,6 +25,7 @@ pub enum Protocol {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TlsConfig {
     pub enabled: bool,
     pub server_name: Option<String>,
@@ -34,6 +35,7 @@ pub struct TlsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     pub id: String,
     pub name: String,
@@ -99,6 +101,7 @@ pub enum ProxyErrorCode {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyStatus {
     pub running: bool,
     pub pid: Option<u32>,
@@ -124,6 +127,14 @@ pub enum RuleMatchType {
     DomainKeyword,
     IpCidr,
     ProcessName,
+    /// References one or more already-downloaded GeoIP/GeoSite `.srs`
+    /// rule-set resources by id (see [`RuleResourceInfo::id`]) instead of a
+    /// literal domain/IP/process value -- see [`RoutingRule::values`]'s doc
+    /// comment for the dual meaning this gives that field, and
+    /// `core_manager::config::build_route_rules` for how this maps to
+    /// sing-box's `route.rule_set` + `{"rule_set": [...], "outbound": ...}`
+    /// shape.
+    RuleSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,20 +145,117 @@ pub enum RuleOutbound {
     Block,
 }
 
+/// `rename_all = "camelCase"` here is load-bearing, not cosmetic: unlike
+/// this struct's `values`/`outbound` fields, `match_type` is a *required*
+/// (non-`Option`) field with no default, so without this attribute the
+/// literal wire key would be `match_type` -- and the frontend always sends
+/// `matchType` (see `src/types.ts`'s `RoutingRule`) when constructing a
+/// fresh rule (`RuleForm`), which isn't a partial-object spread of a
+/// previous `rules_add`/`rules_update` response the way `UserConfig`
+/// settings toggles are. That mismatch doesn't fail silently the way a
+/// missing `Option` field does (serde treats an absent key for `Option<T>`
+/// as `None` automatically, with or without `#[serde(default)]`) -- it's a
+/// hard `serde` "missing field `match_type`" deserialization error, which
+/// surfaces as `rules_add`/`rules_update` unconditionally rejecting every
+/// call from the UI. Confirmed via real end-to-end testing while building
+/// the rule-resources feature (adding a `RuleSet`-type rule through the
+/// actual running app failed with exactly that error before this attribute
+/// was added).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RoutingRule {
     pub id: String,
     pub name: String,
     pub enabled: bool,
     pub match_type: RuleMatchType,
-    /// One or more raw match values (domains/suffixes/keywords/CIDRs/process
-    /// names depending on `match_type`) -- no cross-field validation here,
-    /// that's the UI's job to keep the input reasonable.
+    /// One or more raw match values -- meaning depends on `match_type`:
+    /// - `Domain`/`DomainSuffix`/`DomainKeyword`/`IpCidr`/`ProcessName`:
+    ///   literal domains/suffixes/keywords/CIDRs/process names, typed in by
+    ///   hand (unchanged from before rule-sets existed).
+    /// - `RuleSet`: one or more [`RuleResourceInfo::id`]s of already-
+    ///   downloaded GeoIP/GeoSite `.srs` resources (see the `rule-resources`
+    ///   crate + `UserConfig::rule_resources`) rather than literal values --
+    ///   a rule can only reference resources that have actually been
+    ///   downloaded, which is the UI's job to enforce (see `RuleForm`).
+    ///
+    /// No cross-field validation here either way -- that's the UI's job to
+    /// keep the input reasonable.
     pub values: Vec<String>,
     pub outbound: RuleOutbound,
 }
 
+/// Which upstream repo/file-prefix a downloaded rule-set resource came from
+/// -- mirrors `rule_resources::ResourceCategory` (a distinct type in that
+/// crate, since `rule-resources` itself has no need for `shared-types`'
+/// wire-format conventions) but is the shape actually persisted in
+/// `UserConfig`/sent over IPC. See `RuleResourceInfo`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuleResourceCategory {
+    Geosite,
+    GeoIp,
+}
+
+/// One downloaded GeoIP/GeoSite `.srs` rule-set resource, tracked in
+/// `UserConfig::rule_resources` so a `RoutingRule` with
+/// `match_type: RuleMatchType::RuleSet` can reference it by `id` (see that
+/// variant's doc comment). The actual `.srs` file lives on disk at a path
+/// this struct doesn't carry -- see `state::rule_resources_dir` /
+/// `<category>-<name>.srs` naming convention on the `src-tauri` side; this
+/// struct is metadata only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleResourceInfo {
+    /// Stable id a `RoutingRule.values` entry references -- same as `name`
+    /// today (bare category name, e.g. `"netflix"`), kept as its own field
+    /// rather than reusing `name` directly in case a future custom resource
+    /// needs an id distinct from its display name.
+    pub id: String,
+    /// Bare category name, e.g. `"netflix"` (no `geosite-`/`geoip-` prefix
+    /// or `.srs` suffix) -- see `rule_resources::CatalogEntry::name`.
+    pub name: String,
+    pub category: RuleResourceCategory,
+    /// Whether this came from `rule_resources::builtin_catalog()` (true) or
+    /// a user-supplied custom URL via `rule_resources_download_custom`
+    /// (false).
+    pub is_builtin: bool,
+    /// The exact URL last used to fetch this resource, after any
+    /// GitHub-acceleration-prefix substitution (`UserConfig.github_accel_prefix`)
+    /// -- kept for display/debugging, not re-derived from `name`/`category`
+    /// at display time.
+    pub source_url: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    /// RFC3339 timestamp string of the last successful download/update.
+    pub downloaded_at: String,
+}
+
+fn default_rule_resource_auto_update_interval_hours() -> u32 {
+    24
+}
+
+/// `rename_all = "camelCase"` here is load-bearing, not cosmetic, for the
+/// same reason documented on `RoutingRule` above: `config_save`'s `config`
+/// parameter deserializes a `UserConfig` straight from the frontend, and
+/// several fields here (`proxy_mode`, `proxy_mode_type`, `auto_start`,
+/// `silent_start`, `auto_connect`, `minimize_to_tray`) are required
+/// (non-`Option`, no `#[serde(default)]`) -- without this attribute every
+/// `config_save` call would have hard-failed with a "missing field" error
+/// (the frontend always sends `proxyMode`/`autoStart`/etc., never the
+/// literal snake_case key), and `config_get`'s *response* would have come
+/// back with snake_case keys the frontend's camelCase-typed field accesses
+/// (`config.autoStart`) silently read as `undefined` -- worse, since that
+/// direction fails silently rather than throwing, `selected_server_id`
+/// specifically would round-trip a STALE value on every save (the
+/// leftover snake_case key from the previous `config_get` surviving a
+/// spread alongside an ignored, differently-cased new key) while the UI
+/// reported success. This was never caught earlier because every save
+/// path was verified either through a bare browser tab (no real backend,
+/// `invoke` always rejects before reaching serde at all) or by checking
+/// for uncaught JS exceptions -- a graceful, caught promise rejection (or
+/// a silent no-op) doesn't throw one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserConfig {
     pub servers: Vec<ServerConfig>,
     pub rules: Vec<RoutingRule>,
@@ -171,6 +279,32 @@ pub struct UserConfig {
     /// while the proxy is already running does not retroactively start
     /// logging that run -- see `CoreManager::start`).
     pub connection_history_enabled: bool,
+
+    /// Downloaded GeoIP/GeoSite `.srs` rule-set resources -- see
+    /// `RuleResourceInfo` and the `rule-resources` crate. `#[serde(default)]`
+    /// so a `config.json` persisted before this feature existed still loads
+    /// cleanly instead of failing to parse and silently resetting every
+    /// other setting back to defaults (see `state::load_persisted_config`).
+    /// (No `rename` needed on this or the three fields below -- the
+    /// struct-level `rename_all = "camelCase"` above already produces the
+    /// same wire name a per-field `rename` would.)
+    #[serde(default)]
+    pub rule_resources: Vec<RuleResourceInfo>,
+    /// Optional GitHub-acceleration mirror prefix (e.g.
+    /// `"https://ghproxy.com/"`), prepended verbatim in front of the real
+    /// `raw.githubusercontent.com` URL by `rule_resources::resource_url` --
+    /// see that function's doc comment. `None`/absent means fetch directly.
+    #[serde(default)]
+    pub github_accel_prefix: Option<String>,
+    /// Opt-in, off by default (mirrors `connection_history_enabled`'s
+    /// convention): whether a background task should periodically
+    /// re-download every tracked `rule_resources` entry.
+    #[serde(default)]
+    pub rule_resource_auto_update: bool,
+    /// How often the auto-update task wakes, when `rule_resource_auto_update`
+    /// is `true`. Defaults to once a day.
+    #[serde(default = "default_rule_resource_auto_update_interval_hours")]
+    pub rule_resource_auto_update_interval_hours: u32,
 }
 
 impl Default for UserConfig {
@@ -187,6 +321,10 @@ impl Default for UserConfig {
             minimize_to_tray: true,
             language: None,
             connection_history_enabled: false,
+            rule_resources: Vec::new(),
+            github_accel_prefix: None,
+            rule_resource_auto_update: false,
+            rule_resource_auto_update_interval_hours: default_rule_resource_auto_update_interval_hours(),
         }
     }
 }
@@ -200,6 +338,7 @@ pub enum HelperPlatform {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HelperStatus {
     pub platform: HelperPlatform,
     pub installed: bool,
@@ -209,6 +348,7 @@ pub struct HelperStatus {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemProxyStatus {
     pub enabled: bool,
     pub http_proxy: Option<String>,
@@ -218,6 +358,7 @@ pub struct SystemProxyStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlatformInfo {
     pub platform: HelperPlatform,
     pub arch: String,

@@ -23,3 +23,11 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # see crates/core-manager/src/process.rs::ProcessHandle::stop.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+# Only used by the `#[ignore]`d real-sing-box-check test in config.rs that
+# downloads a real .srs file to reference via a RuleSet rule -- core-manager
+# itself has no runtime dependency on rule-resources (it just consumes a
+# plain `HashMap<String, PathBuf>` of already-downloaded resource paths, see
+# `config::build_route_rules`/`CoreManager::start`).
+rule-resources = { workspace = true }

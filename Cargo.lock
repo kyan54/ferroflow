@@ -569,6 +569,7 @@ dependencies = [
  "libc",
  "net",
  "reqwest 0.12.28",
+ "rule-resources",
  "serde",
  "serde_json",
  "shared-types",
@@ -1064,6 +1065,7 @@ dependencies = [
  "libc",
  "net",
  "rand 0.8.8",
+ "rule-resources",
  "serde",
  "serde_json",
  "shared-types",
@@ -3266,6 +3268,20 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rule-resources"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

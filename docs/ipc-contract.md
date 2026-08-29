@@ -29,6 +29,11 @@ try {
 | `rules_update` | `rule: RoutingRule` | `UserConfig` | replaces the rule with a matching `id`; no-op (current config unchanged) if the id isn't found |
 | `rules_delete` | `id: string` | `UserConfig` | removes the rule with that id |
 | `rules_reorder` | `orderedIds: string[]` | `UserConfig` | re-sorts `rules` to match `orderedIds`; ids not present in the running config are ignored, existing rules not named in `orderedIds` are appended after, keeping their relative order — call with the full current id list in a new order, not a partial reorder |
+| `rule_resources_catalog` | — | `CatalogEntry[]` | the curated built-in catalog (~20 entries) — see "Rule resources" below |
+| `rule_resources_download` | `category: RuleResourceCategory, name: string` | `UserConfig` | downloads a catalog entry, stores it, upserts a `RuleResourceInfo` into `rule_resources`, persists; `rule_resource_not_in_catalog` if `name`/`category` don't match a catalog entry |
+| `rule_resources_download_custom` | `name: string, category: RuleResourceCategory, url: string` | `UserConfig` | same, but for an arbitrary user-supplied name/URL not in the catalog (`isBuiltin: false`) |
+| `rule_resources_update_all` | — | `UserConfig` | re-downloads every tracked resource using its original name/category and the *current* `githubAccelPrefix`; best-effort per resource, one failure doesn't abort the rest |
+| `rule_resources_delete` | `id: string` | `UserConfig` | removes the file (best-effort) and the tracked entry; no-op on an unknown id |
 | `proxy_start` | `serverId: string` | `ProxyStatus` | looks up server, delegates to `core-manager` |
 | `proxy_stop` | — | `ProxyStatus` | delegates to `core-manager` |
 | `proxy_status` | — | `ProxyStatus` | delegates to `core-manager` |
@@ -239,8 +244,8 @@ previous all-or-nothing behavior — e.g. "domain suffix `.cn` goes direct" or
   id: string;
   name: string;
   enabled: boolean;
-  matchType: "domain" | "domainSuffix" | "domainKeyword" | "ipCidr" | "processName";
-  values: string[];   // one or more raw match values for matchType
+  matchType: "domain" | "domainSuffix" | "domainKeyword" | "ipCidr" | "processName" | "ruleSet";
+  values: string[];   // raw match values for matchType, EXCEPT "ruleSet" -- see "Rule resources" below
   outbound: "proxy" | "direct" | "block";
 }
 ```
@@ -261,10 +266,97 @@ previous all-or-nothing behavior — e.g. "domain suffix `.cn` goes direct" or
 - **`block` outbound.** A `block`-type sing-box outbound is only added to
   the generated config when at least one enabled rule actually references
   it, to avoid emitting an outbound nothing points at.
-- **Scope**: domain (exact/suffix/keyword), IP CIDR, and process-name
-  matching only — no GeoIP/GeoSite `.srs` rule-set file references. That's
-  the separately-deferred "rule-resources" feature (see below), not this
-  one.
+- **Scope**: domain (exact/suffix/keyword), IP CIDR, process-name matching,
+  and GeoIP/GeoSite `.srs` rule-set references (`matchType: "ruleSet"`) --
+  see "Rule resources" below for that last one.
+
+## Rule resources
+
+GeoIP/GeoSite `.srs` rule-set files (sing-box's binary rule-set format) that
+a `RoutingRule` can reference by name (`matchType: "ruleSet"`) instead of
+typing thousands of domains/IPs by hand — e.g. "everything in
+`geosite-netflix.srs` goes through the proxy". Backed by the standalone
+`rule-resources` crate (catalog + URL-building + download mechanics, no
+knowledge of `UserConfig`/sing-box config shape) plus a thin
+`src-tauri/src/commands/rule_resources.rs` state/storage layer on top.
+
+**Download source.** SagerNet (sing-box's author) publishes one small,
+individual `.srs` file per category on a dedicated `rule-set` branch of each
+of its `sing-geosite`/`sing-geoip` repos (not a GitHub release):
+
+```
+https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-<name>.srs
+https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-<name>.srs
+```
+
+Each branch holds well over a thousand files — `rule_resources::builtin_catalog()`
+is a small, curated set of ~20 commonly useful ones (`cn`/`geolocation-!cn`
+GeoSite, `cn`/`private` GeoIP, and per-service GeoSite entries like
+`netflix`/`youtube`/`google`/`github`/`openai`/`telegram`/`tiktok`/
+`disney`/`spotify`/`twitter`/`facebook`/`instagram`/`microsoft`/`apple`/
+`amazon`/`category-ads-all`), not an exhaustive list. Any other valid
+upstream filename can still be added via `rule_resources_download_custom`,
+which takes an arbitrary name/URL directly.
+
+**GitHub-acceleration prefix.** `UserConfig.githubAccelPrefix` (optional,
+`None`/blank by default) is an opaque string prepended verbatim in front of
+the real `raw.githubusercontent.com` URL — e.g. a "GitHub 加速" mirror like
+`https://ghproxy.com/`. `rule_resources::resource_url` does no validation or
+special-casing of the prefix; it's plain string concatenation, matching a
+pattern common in Chinese networking tools for working around
+GitHub-blocked-in-China network conditions.
+
+**Storage.** Downloaded to `<app_config_dir>/rule-resources/<category>-<name>.srs`
+(`state::rule_resources_dir`), atomically (`rule_resources::download` writes
+to `<path>.tmp` then renames over the real path). Each download's size and
+SHA-256 are recorded on the corresponding `RuleResourceInfo` in
+`UserConfig.rule_resources`, keyed by `id` (same as `name` today).
+
+**Referencing a resource from a rule.** `RuleMatchType::RuleSet`
+(`matchType: "ruleSet"` on the wire) is the one `RoutingRule.match_type`
+variant where `values` holds `RuleResourceInfo.id`s instead of literal
+domains/IPs — `RuleForm`'s values editor becomes a checkbox list of
+`config.ruleResources` for this match type, so a rule can only reference
+resources that have actually been downloaded.
+
+**How it maps into the generated sing-box config.**
+`core_manager::config::build_route_rules`/`build_rule_set_entries` turn this
+into sing-box's real `route.rule_set` local-file feature:
+
+```json
+{
+  "route": {
+    "rule_set": [
+      { "type": "local", "tag": "ruleset-netflix", "format": "binary", "path": "<absolute path to the .srs file>" }
+    ],
+    "rules": [
+      { "rule_set": ["ruleset-netflix"], "outbound": "proxy" }
+    ],
+    "final": "proxy"
+  }
+}
+```
+
+One `route.rule_set` entry is emitted per **distinct** resource id actually
+referenced by an *enabled* `RuleSet` rule with a known downloaded path — an
+id with no known path (never downloaded, or deleted since the rule was
+created) is skipped with a `tracing::warn!`, and if every id in a rule
+resolves to nothing, the whole rule is skipped, never a panic or a broken
+config. `CoreManager::start` takes the `id -> .srs path` map as a
+`resource_paths: &HashMap<String, PathBuf>` parameter, built by
+`commands::proxy::proxy_start` from `UserConfig.rule_resources` plus the
+`rule_resources_dir` storage convention.
+
+**Auto update.** `UserConfig.ruleResourceAutoUpdate` (opt-in, off by
+default, mirrors `connectionHistoryEnabled`'s convention) +
+`ruleResourceAutoUpdateIntervalHours` (default 24) control a standalone
+background task (`commands::rule_resources::spawn_auto_update_task`,
+`JoinHandle`-based like `core_manager::history::HistoryRecorder` but *not*
+tied to `proxy_start`/`proxy_stop` — rule-resource freshness has nothing to
+do with whether a proxy run is active). Started once from `lib.rs`'s
+`.setup()` hook and left running for the app's whole lifetime; it re-reads
+both settings fresh on every wake-up, so toggling them takes effect on the
+next tick without a restart.
 
 ## Live connections
 
@@ -462,7 +554,8 @@ the file after its run has ended.
 
 `Protocol` (Vless/Trojan/Shadowsocks/Vmess/Wireguard for MVP — see file
 header), `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`,
-`UserConfig`, `RoutingRule`, `RuleMatchType`, `RuleOutbound`, `HelperStatus`,
+`UserConfig`, `RoutingRule`, `RuleMatchType`, `RuleOutbound`,
+`RuleResourceCategory`, `RuleResourceInfo`, `HelperStatus`,
 `SystemProxyStatus`, `PlatformInfo`, `ConnectionMetadata`, `ConnectionInfo`,
 `ConnectionsSnapshot`, `HistoryEntry`, `AppError`/`AppResult`. Field names are `camelCase`
 on the wire (serde `rename_all`) to match the existing TS naming convention
@@ -501,11 +594,10 @@ surface.
 ## Deferred to phase 2 (do not build yet)
 
 Tailscale (WireGuard itself and one-click Cloudflare WARP registration are
-now implemented — see "WireGuard" and "Cloudflare WARP" above),
-rule-resources (GeoIP/GeoSite `.srs` rule-set
-*file* management/updates — distinct from the basic domain/IP/process
-`RoutingRule` matching already implemented, see "Routing rules" above),
-speed test, window-chrome commands (Linux custom titlebar). Config
+now implemented — see "WireGuard" and "Cloudflare WARP" above), speed test,
+window-chrome commands (Linux custom titlebar). Rule resources (GeoIP/GeoSite
+`.srs` rule-set file management/updates) are now implemented — see "Rule
+resources" above. Config
 backup/restore, a redacted diagnostic export, native file dialogs, persisted
 connection history (opt-in, distinct from the live, in-memory connection
 list — see "Live connections" and "Connection history" above), and the
