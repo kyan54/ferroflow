@@ -14,6 +14,8 @@ import {
   Spinner,
   SegmentedControl,
 } from "../components/ui";
+import { ConnectionTopology } from "../components/ConnectionTopology";
+import { UnlockStatusCard } from "../components/UnlockStatusCard";
 
 const TAKEOVER_LABELS: Record<ProxyModeType, string> = {
   systemProxy: "System proxy",
@@ -95,6 +97,10 @@ export function DashboardView() {
   const stopProxy = useAppStore((s) => s.stopProxy);
   const openDashboard = useAppStore((s) => s.openDashboard);
   const saveConfig = useAppStore((s) => s.saveConfig);
+  const unlockResults = useAppStore((s) => s.unlockResults);
+  const unlockBusy = useAppStore((s) => s.unlockBusy);
+  const unlockError = useAppStore((s) => s.unlockError);
+  const checkUnlock = useAppStore((s) => s.checkUnlock);
 
   useEffect(() => {
     refreshProxyStatus();
@@ -315,6 +321,16 @@ export function DashboardView() {
             </CardContent>
           </Card>
         </div>
+
+        <ConnectionTopology snapshot={connectionsSnapshot} running={running} />
+
+        <UnlockStatusCard
+          results={unlockResults}
+          busy={unlockBusy}
+          error={unlockError}
+          running={running}
+          onCheck={checkUnlock}
+        />
 
         {/* Ferroflow-specific diagnostics with no equivalent slot in FlowZ's
             home layout and nowhere else in the app that surfaces it -- kept

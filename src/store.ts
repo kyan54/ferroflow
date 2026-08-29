@@ -24,6 +24,7 @@ import type {
   RuleResourceCategory,
   ServerConfig,
   SystemProxyStatus,
+  UnlockResult,
   UserConfig,
 } from "./types";
 
@@ -51,6 +52,8 @@ interface AppStore {
   historyEntries: HistoryEntry[];
   logEntries: LogEntry[];
   ruleResourceCatalog: CatalogEntry[];
+  unlockResults: UnlockResult[] | null;
+  unlockError: string | null;
 
   configLoading: boolean;
   proxyBusy: boolean;
@@ -60,6 +63,7 @@ interface AppStore {
   ruleResourceBusy: boolean;
   appRoutingBusy: boolean;
   regionPresetBusy: boolean;
+  unlockBusy: boolean;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], message: string) => void;
@@ -102,6 +106,7 @@ interface AppStore {
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
   openDashboard: () => Promise<void>;
+  checkUnlock: () => Promise<void>;
 
   refreshConnections: () => Promise<void>;
   closeConnection: (id: string) => Promise<void>;
@@ -134,6 +139,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   historyEntries: [],
   logEntries: [],
   ruleResourceCatalog: [],
+  unlockResults: null,
+  unlockError: null,
 
   configLoading: false,
   proxyBusy: false,
@@ -143,6 +150,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   ruleResourceBusy: false,
   appRoutingBusy: false,
   regionPresetBusy: false,
+  unlockBusy: false,
 
   toasts: [],
   pushToast: (kind, message) => {
@@ -529,6 +537,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await ipc.dashboardOpen();
     } catch (err) {
       get().pushToast("error", `Failed to open sing-box dashboard: ${appErrorMessage(err)}`);
+    }
+  },
+
+  checkUnlock: async () => {
+    set({ unlockBusy: true, unlockError: null });
+    try {
+      const unlockResults = await ipc.unlockCheck();
+      set({ unlockResults });
+    } catch (err) {
+      // `proxy_not_running` is the expected/common case (no proxy running,
+      // or TUN mode with no local port to probe through) -- shown inline on
+      // the card itself rather than a disruptive toast, same treatment as
+      // `refreshProxyStatus`/`refreshConnections`.
+      set({ unlockError: appErrorMessage(err) });
+    } finally {
+      set({ unlockBusy: false });
     }
   },
 

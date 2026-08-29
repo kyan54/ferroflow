@@ -16,6 +16,7 @@ pub mod history;
 pub mod logs;
 pub mod process;
 pub mod tun;
+pub mod unlock;
 
 use std::collections::HashMap;
 use std::net::TcpListener;
@@ -26,7 +27,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use helper_client::HelperClient;
 use shared_types::{
     AppError, AppResult, ConnectionsSnapshot, ProxyErrorCode, ProxyModeType, ProxyStatus,
-    RoutingRule, RuleOutbound, ServerConfig,
+    RoutingRule, RuleOutbound, ServerConfig, UnlockResult,
 };
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -664,6 +665,35 @@ impl CoreManager {
     pub async fn current_clash_api_port(&self) -> Option<u16> {
         let guard = self.running.lock().await;
         guard.as_ref().map(|running| running.clash_api_port)
+    }
+
+    /// Probes the built-in streaming/AI-service catalog (see
+    /// `unlock::check_all`) through the current run's local `mixed` inbound
+    /// port. Fails with `AppError{code:"proxy_not_running"}` if nothing is
+    /// running, or if the current run has no local inbound to probe through
+    /// at all (`Tun` mode -- see `ProxyStatus::local_port`'s doc comment) --
+    /// the lock is dropped before the actual probing starts, so this doesn't
+    /// block a concurrent `start()`/`stop()` for however long the probes
+    /// take.
+    pub async fn check_unlock(&self) -> AppResult<Vec<UnlockResult>> {
+        let guard = self.running.lock().await;
+        let port = match guard.as_ref() {
+            None => {
+                return Err(AppError::new("proxy_not_running", "Start the proxy to check unlock status"));
+            }
+            Some(running) => match running.local_port {
+                Some(port) => port,
+                None => {
+                    return Err(AppError::new(
+                        "proxy_not_running",
+                        "Unlock status needs the proxy running in System proxy or Manual mode -- TUN mode has no local port to probe through",
+                    ));
+                }
+            },
+        };
+        drop(guard);
+
+        Ok(unlock::check_all(port).await)
     }
 }
 

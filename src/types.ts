@@ -241,6 +241,16 @@ export interface LogEntry {
   message: string;
 }
 
+export type UnlockStatus = "unlocked" | "locked" | "unknown" | "error";
+
+/** One entry of `unlock_check`'s result -- see `crates/shared-types::UnlockResult`. */
+export interface UnlockResult {
+  service: string;
+  status: UnlockStatus;
+  region?: string | null;
+  detail?: string | null;
+}
+
 /** Shape of every rejected Tauri command promise (`AppError` on the Rust side). */
 export interface AppError {
   code: string;

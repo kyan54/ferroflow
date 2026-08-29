@@ -16,6 +16,7 @@ import type {
   RuleResourceCategory,
   ServerConfig,
   SystemProxyStatus,
+  UnlockResult,
   UserConfig,
 } from "./types";
 
@@ -71,4 +72,6 @@ export const ipc = {
   backupExport: (path: string) => invoke<void>("backup_export", { path }),
   backupImport: (path: string) => invoke<UserConfig>("backup_import", { path }),
   diagnosticExport: (path: string) => invoke<void>("diagnostic_export", { path }),
+
+  unlockCheck: () => invoke<UnlockResult[]>("unlock_check"),
 };

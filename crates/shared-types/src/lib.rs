@@ -528,4 +528,38 @@ impl AppError {
     }
 }
 
+/// Outcome of probing one streaming/AI service through the currently
+/// running proxy -- see `core_manager::unlock` for how each variant gets
+/// decided. `Unknown` covers "we got a response but couldn't classify it"
+/// (e.g. an unexpected HTTP status or a response shape that didn't parse),
+/// distinct from `Error` (the request itself failed -- timeout, connection
+/// refused, TLS failure, DNS failure through the proxy, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UnlockStatus {
+    Unlocked,
+    Locked,
+    Unknown,
+    Error,
+}
+
+/// One entry of the `unlock_check` command's result list -- one per
+/// built-in catalog service (see `core_manager::unlock::check_all`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockResult {
+    /// Display name, e.g. `"Netflix"` -- not a stable machine id, since the
+    /// catalog is small and built-in rather than user-editable.
+    pub service: String,
+    pub status: UnlockStatus,
+    /// Detected region/country code, when the probe technique for this
+    /// service can determine one (not every service's probe can -- see each
+    /// `probe_*` function's doc comment in `core_manager::unlock`).
+    pub region: Option<String>,
+    /// Short human-readable extra context, e.g. `"Originals library only"`
+    /// or an error message -- shown alongside the badge, not meant to be
+    /// parsed.
+    pub detail: Option<String>,
+}
+
 pub type AppResult<T> = Result<T, AppError>;

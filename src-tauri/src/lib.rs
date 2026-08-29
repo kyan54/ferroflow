@@ -62,6 +62,7 @@ pub fn run() {
             commands::backup::backup_export,
             commands::backup::backup_import,
             commands::backup::diagnostic_export,
+            commands::unlock::unlock_check,
         ])
         .setup(|app| {
             state::load_persisted_config(app.handle());

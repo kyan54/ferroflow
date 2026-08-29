@@ -16,4 +16,5 @@ pub mod rule_resources;
 pub mod rules;
 pub mod subscription;
 pub mod system;
+pub mod unlock;
 pub mod warp;

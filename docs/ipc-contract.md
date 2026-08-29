@@ -57,6 +57,7 @@ try {
 | `backup_export` | `path: string` | `()` | writes the current config as a versioned JSON backup to `path` (chosen by the frontend's native save dialog); see "Backup & diagnostics" below |
 | `backup_import` | `path: string` | `UserConfig` | reads a versioned JSON backup from `path` (chosen by the frontend's native open dialog), replaces + persists the config, returns the new config |
 | `diagnostic_export` | `path: string` | `()` | writes a redacted Markdown diagnostic report to `path`; see "Backup & diagnostics" below |
+| `unlock_check` | — | `UnlockResult[]` | probes a built-in catalog of streaming/AI services through the current run's local proxy port; `proxy_not_running` if nothing is running or the current run has no local port (TUN mode); see "Streaming unlock status" below |
 
 `net`'s methods currently return `Err(AppError{code:"not_implemented",..})`
 — that's the seam a future `net` subagent fills in (system-proxy set/clear
@@ -615,6 +616,59 @@ need to start serving it, not just `clash_api`), or consider pinning an
 older dashboard commit/tag that still speaks the classic REST API if this
 gap persists and a working dashboard is wanted sooner.
 
+## Streaming unlock status
+
+`unlock_check` (no args) probes a small built-in catalog of streaming/AI
+services -- Netflix, Disney+, YouTube Premium, ChatGPT, Spotify, Prime Video
+-- through the currently running server, and returns one `UnlockResult` per
+service:
+
+```ts
+interface UnlockResult {
+  service: string;           // display name, e.g. "Netflix"
+  status: "unlocked" | "locked" | "unknown" | "error";
+  region?: string | null;    // detected region/country code, when determinable
+  detail?: string | null;    // short human-readable extra context
+}
+```
+
+The actual probing lives in `core_manager::unlock` (`check_all`), not in the
+Tauri command layer (`commands::unlock::unlock_check` is thin delegation to
+`CoreManager::check_unlock`). Each service issues one or two unauthenticated
+HTTP requests to that provider's public-facing edge, through a `reqwest`
+client configured with an HTTP proxy pointed at the current run's local
+`mixed` inbound port (`ProxyStatus.local_port` -- the same port
+`SystemProxy`/`Manual` mode's local proxy inbound uses; `reqwest` talking to
+it as an HTTP proxy is enough to tunnel HTTPS via CONNECT too), then
+classifies the response. All six probes run concurrently
+(`tokio::join!`), each under an 8-second timeout.
+
+**Requires a local proxy port.** `check_unlock` fails with
+`AppError{code:"proxy_not_running"}` if nothing is running, or if the
+current run has no local inbound to probe through at all (`Tun` mode has no
+`local_port` -- see that field's doc comment). The frontend
+(`UnlockStatusCard`, on the Dashboard) shows this as an inline message
+rather than a toast and disables the "Check unlock status" button whenever
+the proxy isn't running.
+
+**Manually triggered, not polled.** Unlike `proxy_status`/`connections_list`,
+the frontend never calls this on an interval -- each call makes real
+outbound requests to several external services and can take a few seconds,
+so it only runs when the user clicks the button.
+
+**Best-effort by nature, same as any such tool.** Each probe's technique
+(a specific Netflix title id returning 404 vs 200, a JSON field in Disney+'s
+public geo API, a substring in YouTube's Premium page, OpenAI's
+`unsupported_country` 403 response, a locale-prefixed redirect from
+Spotify's signup page, Prime Video's redirect-to-`amazon.com` behavior) is
+the same class of technique community "media unlock checker" scripts use,
+and carries the same maintenance burden: a provider changing a title's
+licensing, an error page's copy, or a JSON schema can silently degrade a
+probe to `UnlockStatus::Unknown` (response received but not classifiable)
+or `UnlockStatus::Error` (request itself failed). See
+`crates/core-manager/src/unlock.rs`'s module doc comment and each
+`probe_*` function for the exact technique and its known limitations.
+
 ## Connection history
 
 Distinct from "Live connections" above: instead of showing what's happening
@@ -720,7 +774,8 @@ header), `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`,
 `UserConfig`, `RoutingRule`, `RuleMatchType`, `RuleOutbound`,
 `RuleResourceCategory`, `RuleResourceInfo`, `HelperStatus`,
 `SystemProxyStatus`, `PlatformInfo`, `ConnectionMetadata`, `ConnectionInfo`,
-`ConnectionsSnapshot`, `HistoryEntry`, `LogLevel`, `LogEntry`, `AppError`/`AppResult`. Field names are `camelCase`
+`ConnectionsSnapshot`, `HistoryEntry`, `LogLevel`, `LogEntry`, `UnlockStatus`,
+`UnlockResult`, `AppError`/`AppResult`. Field names are `camelCase`
 on the wire (serde `rename_all`) to match the existing TS naming convention
 — with one deliberate exception: `ConnectionMetadata::destination_ip` is
 explicitly renamed to `destinationIP` (not the `camelCase`-derived
