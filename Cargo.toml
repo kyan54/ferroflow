@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/shared-types",
+    "crates/core-manager",
+    "crates/net",
+    "crates/helper-proto",
+    "crates/helper-macos",
+    "crates/helper-windows",
+    "crates/helper-linux",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/kyan54/ferroflow"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "sync", "time"] }
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tonic = "0.12"
+prost = "0.13"
+
+shared-types = { path = "crates/shared-types" }
+helper-proto = { path = "crates/helper-proto" }
+core-manager = { path = "crates/core-manager" }
+net = { path = "crates/net" }
