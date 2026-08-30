@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use helper_client::HelperClient;
+use sha2::{Digest, Sha256};
 use shared_types::{
     AppError, AppResult, ConnectionsSnapshot, ProxyErrorCode, ProxyModeType, ProxyStatus,
     RoutingRule, RuleOutbound, ServerConfig, UnlockResult,
@@ -86,7 +87,14 @@ struct RunningCore {
 }
 
 pub struct CoreManager {
-    binary_path: PathBuf,
+    /// `StdMutex` (not a plain field) for the same reason as
+    /// `history_dir_or_path`/`log_buffer` below: `CoreManager::new()` (used
+    /// by `AppState::new()`, before an `AppHandle`/`resource_dir()` exists)
+    /// resolves this via the env-var/`.dev-bin`/bare-name fallback chain in
+    /// `locate_binary`, and `src-tauri`'s `.setup()` hook overrides it via
+    /// `set_binary_path` once the bundled resource path is known -- see
+    /// `state::init_binary_path`.
+    binary_path: StdMutex<PathBuf>,
     running: Mutex<Option<RunningCore>>,
     /// Shared-token auth for talking to the Windows/macOS helper (`None` on
     /// Linux, where `SO_PEERCRED` is the trust boundary — see
@@ -129,13 +137,31 @@ impl CoreManager {
     /// Builds a `CoreManager` that spawns exactly this binary path.
     pub fn with_binary_path(binary_path: impl Into<PathBuf>) -> Self {
         Self {
-            binary_path: binary_path.into(),
+            binary_path: StdMutex::new(binary_path.into()),
             running: Mutex::new(None),
             helper_token: StdMutex::new(None),
             system_proxy: net::SystemProxyManager::new(),
             history_dir_or_path: StdMutex::new(None),
             log_buffer: StdMutex::new(None),
         }
+    }
+
+    /// Overrides the sing-box binary path after construction -- see the
+    /// `binary_path` field's doc comment for why `new()`'s `locate_binary`
+    /// guess needs to be replaceable once the real bundled-resource path is
+    /// known. Affects every `start()` call made after this returns; a run
+    /// already in progress keeps using whatever path it was spawned with.
+    pub fn set_binary_path(&self, path: PathBuf) {
+        *self.binary_path.lock().unwrap() = path;
+    }
+
+    /// The binary path `start()` would currently spawn (for `Backend::Local`
+    /// runs) -- also what `Tun`-mode staging hashes and hands to the
+    /// privileged helper's `InstallCore` command, since both need to agree
+    /// on exactly the same file (see `commands::proxy`'s TUN-mode start
+    /// path).
+    pub fn binary_path(&self) -> PathBuf {
+        self.binary_path.lock().unwrap().clone()
     }
 
     /// Sets (or clears, with `None`) the token used to authenticate to the
@@ -179,17 +205,59 @@ impl CoreManager {
     /// see `.gitignore`) -> bare `sing-box[.exe]`, relying on `PATH`. Never
     /// fails here — a bad path surfaces as a `core_start_failed` AppError
     /// from `start()` when the spawn itself fails.
+    ///
+    /// This is what `new()` uses at construction time, when no Tauri
+    /// `resource_dir()` exists yet -- see `locate_binary_with_resource_dir`
+    /// for the fuller version `src-tauri`'s `.setup()` hook uses once one
+    /// does, which is what actually finds the bundled binary in a packaged
+    /// app (this fallback chain alone never does: a real end user has
+    /// neither the env var nor `.dev-bin`, and relying on `PATH` is exactly
+    /// the "program not found" bug this whole mechanism exists to fix).
     fn locate_binary() -> PathBuf {
+        Self::locate_binary_with_resource_dir(None)
+    }
+
+    /// `binary_name()` -- `sing-box.exe` on Windows, `sing-box` elsewhere --
+    /// exposed so callers resolving a resource-dir-relative path (or
+    /// hashing the binary for `InstallCore`) don't have to duplicate this
+    /// `cfg!(windows)` check.
+    pub fn binary_name() -> &'static str {
+        if cfg!(windows) {
+            "sing-box.exe"
+        } else {
+            "sing-box"
+        }
+    }
+
+    /// Full binary discovery, including the bundled-resource case:
+    /// `FERROFLOW_SINGBOX_PATH` env var -> `./.dev-bin/sing-box[.exe]` ->
+    /// `<resource_dir>/singbox/sing-box[.exe]` (staged there by
+    /// `npm run fetch:singbox`/`scripts/fetch-singbox.mjs` into
+    /// `src-tauri/resources/singbox/`, which `bundle.resources` maps to
+    /// `singbox/` inside the bundle) -> bare `sing-box[.exe]` relying on
+    /// `PATH`, same last-resort as `locate_binary`. `resource_dir` is
+    /// `None` at `new()`'s construction time (no `AppHandle` exists yet);
+    /// `src-tauri`'s `.setup()` hook calls this again with `Some(_)` once
+    /// one does and pushes the result into `set_binary_path` -- see
+    /// `state::init_binary_path`.
+    pub fn locate_binary_with_resource_dir(resource_dir: Option<&std::path::Path>) -> PathBuf {
         if let Ok(path) = std::env::var(BINARY_PATH_ENV) {
             if !path.is_empty() {
                 return PathBuf::from(path);
             }
         }
 
-        let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
+        let binary_name = Self::binary_name();
         let dev_bin = PathBuf::from(".dev-bin").join(binary_name);
         if dev_bin.is_file() {
             return dev_bin;
+        }
+
+        if let Some(resource_dir) = resource_dir {
+            let candidate = resource_dir.join("singbox").join(binary_name);
+            if candidate.is_file() {
+                return candidate;
+            }
         }
 
         PathBuf::from(binary_name)
@@ -287,17 +355,15 @@ impl CoreManager {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
 
-                let mut handle = ProcessHandle::spawn(&self.binary_path, &config_path).map_err(|e| {
+                let binary_path = self.binary_path();
+                let mut handle = ProcessHandle::spawn(&binary_path, &config_path).map_err(|e| {
                     // Config file is orphaned on this path (spawn never happened
                     // to consume it) — best-effort cleanup so temp dir doesn't
                     // accumulate.
                     let _ = std::fs::remove_file(&config_path);
                     AppError::new(
                         "core_start_failed",
-                        format!(
-                            "failed to spawn sing-box binary at '{}': {e}",
-                            self.binary_path.display()
-                        ),
+                        format!("failed to spawn sing-box binary at '{}': {e}", binary_path.display()),
                     )
                 })?;
 
@@ -377,6 +443,36 @@ impl CoreManager {
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
+
+                // The helper only ever runs its own already-verified managed
+                // copy of sing-box (see the security fix noted on `start`'s
+                // `core_path` parameter below), never a path this process
+                // hands it -- so that managed copy has to actually exist
+                // and match what this app was built/bundled with before
+                // every `Tun` start, not just once at install time. Cheap
+                // enough (a local file hash + copy, no network) to just
+                // always do rather than trying to detect "does the helper
+                // already have the right one" first, which would need an
+                // extra round trip anyway. This is what closes the
+                // `core_not_installed` / "run InstallCore first" failure
+                // that made TUN mode entirely unusable before this fix --
+                // nothing in this codebase ever called `InstallCore` prior.
+                let binary_path = self.binary_path();
+                let binary_bytes = tokio::fs::read(&binary_path).await.map_err(|e| {
+                    let _ = std::fs::remove_file(&config_path);
+                    AppError::new(
+                        "core_start_failed",
+                        format!("failed to read sing-box binary at '{}' for InstallCore: {e}", binary_path.display()),
+                    )
+                })?;
+                let sha256 = hex::encode(Sha256::digest(&binary_bytes));
+                if let Err(e) = helper.install_core(binary_path.to_string_lossy(), sha256).await {
+                    let _ = std::fs::remove_file(&config_path);
+                    return Err(AppError::new(
+                        "helper_start_failed",
+                        format!("helper failed to install the managed sing-box core: {e}"),
+                    ));
+                }
 
                 if let Err(e) = helper.start(config_path.to_string_lossy(), "").await {
                     let _ = std::fs::remove_file(&config_path);

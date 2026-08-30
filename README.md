@@ -89,25 +89,43 @@ command surface and any per-feature caveats.
 ```bash
 npm install
 npm run fetch:dashboard   # required -- see note below, even for cargo check
+npm run fetch:singbox     # required -- downloads the real sing-box core binary
 npm run build:helper      # required -- builds this platform's privileged-helper binary
 npm run tauri dev
 ```
 
-**Both `npm run fetch:dashboard` and `npm run build:helper` are not
-optional**, even if you don't care about the dashboard or the privileged
-helper (TUN mode / "Install helper" in Settings): Tauri's build script
+**`npm run fetch:dashboard`, `npm run fetch:singbox`, and `npm run
+build:helper` are all not optional**, even if you don't care about the
+dashboard, TUN mode, or the privileged helper: Tauri's build script
 validates every path in `tauri.conf.json`'s `bundle.resources` at *compile*
 time, not just when actually bundling — `cargo check`/`cargo build`/
-`cargo test` on the `ferroflow` package will fail with `resource path
-"resources\dashboard"`/`"resources\helper"` doesn't exist until these have
-been run once. `npm run build:helper` additionally needs to be re-run any
-time `crates/helper-windows`/`helper-macos`/`helper-linux` or their shared
+`cargo test` on the `ferroflow` package will fail with a `resource path
+"resources\dashboard"`/`"resources\helper"`/`"resources\singbox"` doesn't
+exist error until these have all been run once.
+
+`npm run fetch:singbox` is the most important of the three in practice:
+without it, "start proxy" fails outright with "program not found" on a
+real installed copy of the app -- for most of this project's history the
+sing-box *core* binary (the actual thing this whole app runs) was never
+bundled with any installer at all, only discoverable via a
+`FERROFLOW_SINGBOX_PATH` env var or a `.dev-bin/` dev convenience path that
+a real end user has neither of. The version it fetches is pinned (see
+`scripts/fetch-singbox.mjs`'s `SING_BOX_VERSION`) and checksum-verified
+against a hash pinned in that same script -- bump both together, and
+re-run `crates/core-manager`'s `cargo test -- --ignored` real-binary suite
+against the new version before trusting it, since this project has been
+bitten before by a sing-box release changing a config shape (the
+`wireguard` outbound removed in 1.13.0) that only a real `sing-box check`
+run caught.
+
+`npm run build:helper` additionally needs to be re-run any time
+`crates/helper-windows`/`helper-macos`/`helper-linux` or their shared
 dependencies (`helper-proto`, `shared-types`) change, since it stages a
 real compiled binary, not just a marker file — a stale one won't be
 noticed by `cargo check` (it isn't a Rust build artifact `cargo` tracks),
 so "Install helper" in Settings can silently install an old helper if you
-forget. (Missing `fetch:dashboard` bit CI initially; both `build.yml` and
-`release.yml` now run both scripts before any `cargo` step.)
+forget. (Missing `fetch:dashboard` bit CI initially; `build.yml` and
+`release.yml` now run all three scripts before any `cargo` step.)
 
 Rust workspace: `cargo check --workspace` / `cargo test --workspace --exclude ferroflow`
 (the `ferroflow` src-tauri package itself has no unit tests — the Tauri

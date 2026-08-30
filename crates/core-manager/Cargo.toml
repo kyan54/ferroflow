@@ -9,7 +9,11 @@ shared-types = { workspace = true }
 helper-proto = { workspace = true }
 helper-client = { workspace = true }
 net = { workspace = true }
-tokio = { workspace = true }
+# `fs` on top of the workspace base: needed for the async binary read in
+# `start()`'s `Tun` arm (hashing the sing-box binary for `InstallCore`) --
+# see `crates/helper-windows/Cargo.toml` for the same addition, for the
+# same reason.
+tokio = { workspace = true, features = ["fs"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -18,6 +22,12 @@ tracing = { workspace = true }
 # packages -- matches crates/subscription's fetch.rs exactly, so the
 # workspace doesn't end up with two different TLS backends.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Hashing the sing-box binary for the TUN-mode `InstallCore` handoff to the
+# privileged helper (see `start()`'s `Tun` arm) -- same versions already
+# pinned in `crates/helper-windows/Cargo.toml`, which verifies the other
+# side of this same hash.
+sha2 = "0.10"
+hex = "0.4"
 
 # Graceful stop (SIGTERM before SIGKILL) needs a raw `kill(2)` — Unix only,
 # see crates/core-manager/src/process.rs::ProcessHandle::stop.

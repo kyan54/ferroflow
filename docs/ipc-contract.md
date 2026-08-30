@@ -103,9 +103,19 @@ loaded into `AppState.helper_token` at startup and pushed into
 `CoreManager::set_helper_token` — see `state.rs`. Binary discovery for the
 bundled helper executable mirrors `core-manager`'s `locate_binary`
 convention: `FERROFLOW_HELPER_PATH` env var → `.dev-bin/<helper-exe-name>`
-(dev convenience, gitignored) → Tauri `resource_dir()` (packaged case, not
-wired into `tauri.conf.json` bundling yet — that's a packaging-pass
-follow-up, not blocking for dev/CI).
+(dev convenience, gitignored) → `<resource_dir>/helper/<helper-exe-name>`
+(packaged case — staged there by `npm run build:helper`, which
+`bundle.resources` maps to `helper/` inside the bundle; see
+`scripts/build-helper.mjs`). The sing-box *core* binary itself follows the
+identical three-tier pattern (`FERROFLOW_SINGBOX_PATH` → `.dev-bin/sing-box`
+→ `<resource_dir>/singbox/`, staged by `npm run fetch:singbox`/
+`scripts/fetch-singbox.mjs`) — see `CoreManager::locate_binary_with_resource_dir`
+and `state::init_binary_path`. TUN-mode starts additionally push this same
+binary (hashed) to the privileged helper via the `InstallCore` pipe command
+before every `Start`, since the helper only ever runs its own
+install-time-verified managed copy, never a path the app hands it directly
+(security fix noted on the `Start` command below) — see `CoreManager::start`'s
+`Tun` arm.
 
 ## Subscription import
 

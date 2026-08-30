@@ -70,6 +70,8 @@ pub fn run() {
             // Must run before any `proxy_start` could occur -- see
             // `state::init_history_path`'s doc comment.
             state::init_history_path(app.handle());
+            // Ditto -- see `state::init_binary_path`'s doc comment.
+            state::init_binary_path(app.handle());
             // Standalone background task (not tied to proxy start/stop --
             // see its doc comment) that re-downloads tracked rule-set
             // resources on an interval when `rule_resource_auto_update` is

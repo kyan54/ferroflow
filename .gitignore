@@ -34,6 +34,13 @@ dist-ssr
 # as /src-tauri/resources/dashboard/ above).
 /src-tauri/resources/helper/
 
+# Fetched by `npm run fetch:singbox` (scripts/fetch-singbox.mjs) into
+# src-tauri/resources/singbox/ -- a pinned, checksum-verified release of the
+# real sing-box binary this whole app exists to run. Large, third-party,
+# platform-specific, and reproducible from that script -- never committed
+# (same reasoning as /src-tauri/resources/dashboard/ above).
+/src-tauri/resources/singbox/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -88,6 +88,21 @@ pub fn init_history_path(app: &AppHandle) {
     state.core_manager.set_history_path(history_path(app));
 }
 
+/// Re-resolves the sing-box binary path now that `resource_dir()` is
+/// available, and pushes the result into `core_manager` -- same reasoning
+/// and same "must run before any `proxy_start`" requirement as
+/// `init_history_path` above. Without this, `CoreManager::new()`'s
+/// construction-time guess (env var / `.dev-bin` / bare name relying on
+/// `PATH`) is all `start()` would ever see, and a real packaged app has
+/// none of those -- see `CoreManager::locate_binary_with_resource_dir`'s
+/// doc comment for the full explanation of the bug this closes.
+pub fn init_binary_path(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let resource_dir = app.path().resource_dir().ok();
+    let path = CoreManager::locate_binary_with_resource_dir(resource_dir.as_deref());
+    state.core_manager.set_binary_path(path);
+}
+
 /// Best-effort load at startup, mirroring `load_persisted_config`: a
 /// missing file (first run, or Linux where none is ever written) just
 /// leaves `helper_token`/`core_manager`'s copy at `None`.

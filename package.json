@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "fetch:dashboard": "node scripts/fetch-dashboard.mjs",
+    "fetch:singbox": "node scripts/fetch-singbox.mjs",
     "build:helper": "node scripts/build-helper.mjs"
   },
   "dependencies": {

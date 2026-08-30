@@ -39,6 +39,9 @@ jobs:
       - name: Fetch sing-box dashboard assets
         run: npm run fetch:dashboard
 
+      - name: Fetch the real sing-box core binary
+        run: npm run fetch:singbox
+
       - name: Build this platform's privileged-helper binary
         run: npm run build:helper
 

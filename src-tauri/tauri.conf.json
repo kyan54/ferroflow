@@ -34,7 +34,8 @@
     "resources": {
       "resources/dashboard/": "dashboard/",
       "resources/webview2/WebView2Loader.dll": "./",
-      "resources/helper/": "helper/"
+      "resources/helper/": "helper/",
+      "resources/singbox/": "singbox/"
     },
     "windows": {
       "webviewInstallMode": {

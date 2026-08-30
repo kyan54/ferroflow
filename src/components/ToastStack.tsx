@@ -19,14 +19,14 @@ export function ToastStack() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`flex items-start justify-between gap-3 rounded-lg px-4 py-3 text-sm shadow-lg ${
+          className={`flex max-h-[70vh] items-start justify-between gap-3 overflow-y-auto rounded-lg px-4 py-3 text-sm shadow-lg ${
             KIND_STYLES[toast.kind]
           }`}
         >
-          <span className="break-words">{toast.message}</span>
+          <span className="min-w-0 break-words">{toast.message}</span>
           <button
             onClick={() => dismissToast(toast.id)}
-            className="shrink-0 opacity-70 hover:opacity-100"
+            className="sticky top-0 shrink-0 opacity-70 hover:opacity-100"
             aria-label={t.common.dismiss}
           >
             ✕
