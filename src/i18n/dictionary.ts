@@ -91,11 +91,33 @@ export interface Dictionary {
 
   servers: {
     title: string;
-    getWarp: string;
-    registeringWarp: string;
-    import: string;
-    addServer: string;
+    /** Header subtitle -- just the total count, since ferroflow has no
+     * mesh/subscription-vs-manual distinction tracked as separate fields
+     * (see docs/ipc-contract.md). */
+    subtitle: (total: number) => string;
+    testAll: string;
+    testingAll: string;
+    addMenu: {
+      button: string;
+      manualAdd: string;
+      manualImport: string;
+      addSubscription: string;
+      getWarp: string;
+      registeringWarp: string;
+    };
+    search: { placeholder: string; ariaLabel: string };
+    filter: { ariaLabel: string; all: string };
+    sort: { ariaLabel: string; nameAsc: string; latencyAsc: string };
     empty: string;
+    noResults: string;
+    card: {
+      current: string;
+      testLatency: string;
+      latencyTimeout: string;
+      noTls: string;
+      tlsPlain: string;
+      tlsReality: string;
+    };
     duplicate: string;
     delete: string;
     confirmDelete: string;
@@ -382,5 +404,6 @@ export interface Dictionary {
     ruleResourceDeleteFailed: (msg: string) => string;
     logsCopied: string;
     logsCopyFailed: (msg: string) => string;
+    latencyTestFailed: (msg: string) => string;
   };
 }

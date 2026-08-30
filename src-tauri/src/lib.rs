@@ -33,6 +33,8 @@ pub fn run() {
             commands::proxy::proxy_start,
             commands::proxy::proxy_stop,
             commands::proxy::proxy_status,
+            commands::latency::server_test_latency,
+            commands::latency::servers_test_latency_all,
             commands::connections::connections_list,
             commands::connections::connections_close,
             commands::connections::connections_close_all,

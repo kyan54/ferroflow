@@ -37,6 +37,8 @@ try {
 | `proxy_start` | `serverId: string` | `ProxyStatus` | looks up server, delegates to `core-manager` |
 | `proxy_stop` | — | `ProxyStatus` | delegates to `core-manager` |
 | `proxy_status` | — | `ProxyStatus` | delegates to `core-manager` |
+| `server_test_latency` | `serverId: string` | `number \| null` | raw TCP-connect timing (ms) to that server's `address:port`; `null` (not an error) on timeout/connect failure — see "Server latency test" below |
+| `servers_test_latency_all` | — | `Record<string, number \| null>` | same probe, run concurrently across every server in the current config, keyed by server id |
 | `connections_list` | — | `ConnectionsSnapshot` | delegates to `core-manager`'s Clash API client; `proxy_not_running` if nothing is running |
 | `connections_close` | `id: string` | `()` | closes one connection by id |
 | `connections_close_all` | — | `()` | closes every current connection |
@@ -678,6 +680,41 @@ probe to `UnlockStatus::Unknown` (response received but not classifiable)
 or `UnlockStatus::Error` (request itself failed). See
 `crates/core-manager/src/unlock.rs`'s module doc comment and each
 `probe_*` function for the exact technique and its known limitations.
+
+## Server latency test
+
+`commands::latency` (`server_test_latency`/`servers_test_latency_all`) gives
+the Servers page a quick per-node ping/latency indicator, using the same
+lightweight technique real-world proxy-client UIs use: **a raw TCP connect
+to the server's own `address:port`, wall-clock timed** — not a full proxy
+handshake through sing-box, and not routed through the local proxy port the
+way `unlock_check`'s probes are. This deliberately means it works with the
+proxy fully stopped (no sing-box process, no privileged helper needed at
+all) — it's testing "can I reach this endpoint and how long does the TCP
+handshake take", the same signal a ping/traceroute-style indicator in any
+proxy client conveys, not "does the full protocol handshake succeed".
+
+- `server_test_latency(serverId)` looks up the server the same way
+  `proxy_start` does (`AppError{code:"server_not_found"}` if the id doesn't
+  match), then times one `tokio::net::TcpStream::connect` against
+  `server.address:server.port`, capped at a 3-second `tokio::time::timeout`.
+  Returns `Ok(Some(ms))` on a successful connect, **`Ok(None)`** (not an
+  `Err`) on a timeout or any connect failure (DNS failure, connection
+  refused, host unreachable, ...) — a server not responding is an expected,
+  legitimate probe result the UI shows inline (e.g. "Timeout"), not an error
+  toast.
+- `servers_test_latency_all()` runs the same probe concurrently across every
+  server in the current config via a `tokio::task::JoinSet` (a dynamic-
+  length analogue of `core_manager::unlock::check_all`'s fixed-arity
+  `tokio::join!` fan-out, since the server list's length varies), returning
+  one `serverId -> Option<ms>` entry per server. Like the single-server
+  variant, an individual server's probe failing surfaces as that entry's
+  `None`, never a batch-wide `Err`.
+- The frontend's "Test all" button (`ServersView`) calls the batch command
+  and merges the result into `latencyResults` (`store.ts`); each card's own
+  lightning-bolt button calls the single-server command for just that node.
+  Neither call is polled — same "only runs when the user asks" convention as
+  `unlock_check`.
 
 ## Connection history
 

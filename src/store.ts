@@ -60,6 +60,11 @@ interface AppStore {
   ruleResourceCatalog: CatalogEntry[];
   unlockResults: UnlockResult[] | null;
   unlockError: string | null;
+  /** `serverId -> last measured latency in ms, or null for a failed/timed
+   * out probe` -- populated by `testServerLatency`/`testAllServerLatency`,
+   * never cleared on its own (a stale reading is still useful context until
+   * the next test). */
+  latencyResults: Record<string, number | null>;
 
   configLoading: boolean;
   proxyBusy: boolean;
@@ -70,6 +75,12 @@ interface AppStore {
   appRoutingBusy: boolean;
   regionPresetBusy: boolean;
   unlockBusy: boolean;
+  /** Ids of servers currently being probed by `testServerLatency`, plus a
+   * separate whole-batch flag for `testAllServerLatency` -- lets the
+   * Servers page show a per-card spinner and disable "Test all" without
+   * conflating the two. */
+  latencyTestingIds: Set<string>;
+  latencyTestingAll: boolean;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], message: string) => void;
@@ -121,6 +132,8 @@ interface AppStore {
   stopProxy: () => Promise<void>;
   openDashboard: () => Promise<void>;
   checkUnlock: () => Promise<void>;
+  testServerLatency: (serverId: string) => Promise<void>;
+  testAllServerLatency: () => Promise<void>;
 
   refreshConnections: () => Promise<void>;
   closeConnection: (id: string) => Promise<void>;
@@ -157,6 +170,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   ruleResourceCatalog: [],
   unlockResults: null,
   unlockError: null,
+  latencyResults: {},
 
   configLoading: false,
   proxyBusy: false,
@@ -167,6 +181,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   appRoutingBusy: false,
   regionPresetBusy: false,
   unlockBusy: false,
+  latencyTestingIds: new Set(),
+  latencyTestingAll: false,
 
   toasts: [],
   pushToast: (kind, message) => {
@@ -589,6 +605,34 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ unlockError: appErrorMessage(err) });
     } finally {
       set({ unlockBusy: false });
+    }
+  },
+
+  testServerLatency: async (serverId) => {
+    set((s) => ({ latencyTestingIds: new Set(s.latencyTestingIds).add(serverId) }));
+    try {
+      const ms = await ipc.serverTestLatency(serverId);
+      set((s) => ({ latencyResults: { ...s.latencyResults, [serverId]: ms } }));
+    } catch (err) {
+      get().pushToast("error", getT().toasts.latencyTestFailed(appErrorMessage(err)));
+    } finally {
+      set((s) => {
+        const next = new Set(s.latencyTestingIds);
+        next.delete(serverId);
+        return { latencyTestingIds: next };
+      });
+    }
+  },
+
+  testAllServerLatency: async () => {
+    set({ latencyTestingAll: true });
+    try {
+      const results = await ipc.serversTestLatencyAll();
+      set((s) => ({ latencyResults: { ...s.latencyResults, ...results } }));
+    } catch (err) {
+      get().pushToast("error", getT().toasts.latencyTestFailed(appErrorMessage(err)));
+    } finally {
+      set({ latencyTestingAll: false });
     }
   },
 

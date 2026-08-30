@@ -44,6 +44,9 @@ export const ipc = {
   proxyStop: () => invoke<ProxyStatus>("proxy_stop"),
   proxyStatus: () => invoke<ProxyStatus>("proxy_status"),
 
+  serverTestLatency: (serverId: string) => invoke<number | null>("server_test_latency", { serverId }),
+  serversTestLatencyAll: () => invoke<Record<string, number | null>>("servers_test_latency_all"),
+
   connectionsList: () => invoke<ConnectionsSnapshot>("connections_list"),
   connectionsClose: (id: string) => invoke<void>("connections_close", { id }),
   connectionsCloseAll: () => invoke<void>("connections_close_all"),

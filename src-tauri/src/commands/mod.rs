@@ -4,6 +4,7 @@ pub mod connections;
 pub mod dashboard;
 pub mod helper;
 pub mod history;
+pub mod latency;
 pub mod logs;
 #[cfg(target_os = "windows")]
 pub mod helper_windows;
