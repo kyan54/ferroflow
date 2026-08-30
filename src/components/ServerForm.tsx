@@ -19,29 +19,46 @@ const PROTOCOL_FIELDS: Record<Protocol, { uuid: boolean; password: boolean; encr
 // fieldset below doesn't apply to it.
 const PROTOCOLS_WITH_TLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess"];
 
-export function ServerForm({ onDone }: { onDone: () => void }) {
+export function ServerForm({
+  onDone,
+  initialServer,
+}: {
+  onDone: () => void;
+  /** When present, the form edits this server in place (via `updateServer`)
+   * instead of creating a new one -- preserves `id`/`source` exactly,
+   * mirroring `RuleForm`'s `initialRule` edit pattern. */
+  initialServer?: ServerConfig;
+}) {
   const { t } = useTranslation();
   const addServer = useAppStore((s) => s.addServer);
+  const updateServer = useAppStore((s) => s.updateServer);
+  const isEditing = !!initialServer;
 
-  const [name, setName] = useState("");
-  const [protocol, setProtocol] = useState<Protocol>("vless");
-  const [address, setAddress] = useState("");
-  const [port, setPort] = useState("443");
-  const [uuid, setUuid] = useState("");
-  const [password, setPassword] = useState("");
-  const [encryption, setEncryption] = useState("");
-  const [flow, setFlow] = useState("");
+  const [name, setName] = useState(initialServer?.name ?? "");
+  const [protocol, setProtocol] = useState<Protocol>(initialServer?.protocol ?? "vless");
+  const [address, setAddress] = useState(initialServer?.address ?? "");
+  const [port, setPort] = useState(initialServer ? String(initialServer.port) : "443");
+  const [uuid, setUuid] = useState(initialServer?.uuid ?? "");
+  const [password, setPassword] = useState(initialServer?.password ?? "");
+  const [encryption, setEncryption] = useState(initialServer?.encryption ?? "");
+  const [flow, setFlow] = useState(initialServer?.flow ?? "");
 
-  const [wireguardPrivateKey, setWireguardPrivateKey] = useState("");
-  const [wireguardPeerPublicKey, setWireguardPeerPublicKey] = useState("");
-  const [wireguardPreSharedKey, setWireguardPreSharedKey] = useState("");
-  const [wireguardLocalAddress, setWireguardLocalAddress] = useState("");
+  const [wireguardPrivateKey, setWireguardPrivateKey] = useState(initialServer?.wireguardPrivateKey ?? "");
+  const [wireguardPeerPublicKey, setWireguardPeerPublicKey] = useState(
+    initialServer?.wireguardPeerPublicKey ?? "",
+  );
+  const [wireguardPreSharedKey, setWireguardPreSharedKey] = useState(
+    initialServer?.wireguardPreSharedKey ?? "",
+  );
+  const [wireguardLocalAddress, setWireguardLocalAddress] = useState(
+    initialServer?.wireguardLocalAddress ?? "",
+  );
 
-  const [tlsEnabled, setTlsEnabled] = useState(true);
-  const [serverName, setServerName] = useState("");
-  const [insecure, setInsecure] = useState(false);
-  const [realityPublicKey, setRealityPublicKey] = useState("");
-  const [realityShortId, setRealityShortId] = useState("");
+  const [tlsEnabled, setTlsEnabled] = useState(initialServer ? !!initialServer.tls?.enabled : true);
+  const [serverName, setServerName] = useState(initialServer?.tls?.serverName ?? "");
+  const [insecure, setInsecure] = useState(initialServer?.tls?.insecure ?? false);
+  const [realityPublicKey, setRealityPublicKey] = useState(initialServer?.tls?.realityPublicKey ?? "");
+  const [realityShortId, setRealityShortId] = useState(initialServer?.tls?.realityShortId ?? "");
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -57,7 +74,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
     }
 
     const server: ServerConfig = {
-      id: newId(),
+      id: initialServer?.id ?? newId(),
       name: name.trim(),
       protocol,
       address: address.trim(),
@@ -80,12 +97,16 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
       wireguardPeerPublicKey: isWireguard ? wireguardPeerPublicKey.trim() || null : null,
       wireguardPreSharedKey: isWireguard ? wireguardPreSharedKey.trim() || null : null,
       wireguardLocalAddress: isWireguard ? wireguardLocalAddress.trim() || null : null,
-      source: "manual",
+      source: initialServer?.source ?? "manual",
     };
 
     setSubmitting(true);
     try {
-      await addServer(server);
+      if (isEditing) {
+        await updateServer(server);
+      } else {
+        await addServer(server);
+      }
       onDone();
     } finally {
       setSubmitting(false);
@@ -96,7 +117,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
     <Card>
       <form onSubmit={handleSubmit}>
         <CardHeader>
-          <CardTitle>{t.serverForm.title}</CardTitle>
+          <CardTitle>{isEditing ? t.serverForm.editTitle : t.serverForm.title}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-4">
           <div className="grid grid-cols-2 gap-3">
@@ -250,7 +271,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
               {t.serverForm.cancel}
             </Button>
             <Button type="submit" busy={submitting}>
-              {t.serverForm.submit}
+              {isEditing ? t.serverForm.save : t.serverForm.submit}
             </Button>
           </div>
         </CardContent>

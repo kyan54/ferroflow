@@ -59,21 +59,39 @@ function DuplicateIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function CopyIcon(props: SVGProps<SVGSVGElement>) {
+/** Chain-link icon -- deliberately distinct from `DuplicateIcon`'s
+ * stacked-rectangles shape ("copy this item") since this button does a
+ * conceptually different thing ("copy this server's share-link URI to the
+ * clipboard"), not a copy of the server entry itself. */
+function LinkIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...icon(props)}>
-      <rect x="9" y="9" width="12" height="12" rx="2" />
-      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+      <path d="M9.5 14.5l5-5" />
+      <path d="M11 5.5l1-1a3.2 3.2 0 0 1 4.5 4.5l-1.5 1.5" />
+      <path d="M13 18.5l-1 1a3.2 3.2 0 0 1-4.5-4.5l1.5-1.5" />
     </svg>
   );
 }
 
+/** Download-into-tray icon -- "bring this subscription server into your
+ * own self-built list" -- deliberately distinct from both `DuplicateIcon`
+ * and `LinkIcon` (neither of which involves this button's actual effect:
+ * changing `source` to `manual`, not just copying data). */
 function CloneToSelfBuiltIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...icon(props)}>
-      <rect x="8" y="8" width="12" height="12" rx="2" />
-      <path d="M4 14V4a1 1 0 0 1 1-1h10" />
-      <path d="M13 12v4M11 14h4" />
+      <path d="M12 3v11" />
+      <path d="M7.5 10.5L12 15l4.5-4.5" />
+      <path d="M4.5 19h15" />
+    </svg>
+  );
+}
+
+function PencilIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...icon(props)}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   );
 }
@@ -270,6 +288,7 @@ function ServerCard({
   isTesting,
   pendingDelete,
   onTest,
+  onEdit,
   onDuplicate,
   onCopyShareUrl,
   onCloneToSelfBuilt,
@@ -283,6 +302,7 @@ function ServerCard({
   isTesting: boolean;
   pendingDelete: boolean;
   onTest: () => void;
+  onEdit: () => void;
   onDuplicate: () => void;
   onCopyShareUrl: () => void;
   onCloneToSelfBuilt: () => void;
@@ -344,6 +364,15 @@ function ServerCard({
         <Button
           variant="ghost"
           size="icon"
+          title={t.servers.edit}
+          aria-label={t.servers.edit}
+          onClick={onEdit}
+        >
+          <PencilIcon className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           title={t.servers.duplicate}
           aria-label={t.servers.duplicate}
           onClick={onDuplicate}
@@ -358,7 +387,7 @@ function ServerCard({
             aria-label={t.servers.copyShareUrl}
             onClick={onCopyShareUrl}
           >
-            <CopyIcon className="h-4 w-4" />
+            <LinkIcon className="h-4 w-4" />
           </Button>
         )}
         {server.source === "subscription" && (
@@ -407,6 +436,7 @@ export function ServersView() {
   const testAllServerLatency = useAppStore((s) => s.testAllServerLatency);
 
   const [showForm, setShowForm] = useState(false);
+  const [editingServer, setEditingServer] = useState<ServerConfig | null>(null);
   const [showImportForm, setShowImportForm] = useState(false);
   const [importInitialMode, setImportInitialMode] = useState<ImportMode>("url");
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -469,7 +499,18 @@ export function ServersView() {
 
   function openManualAdd() {
     setShowAddMenu(false);
+    setEditingServer(null);
     setShowForm(true);
+  }
+
+  function openEdit(server: ServerConfig) {
+    setEditingServer(server);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingServer(null);
   }
 
   function openManualImport() {
@@ -560,7 +601,7 @@ export function ServersView() {
 
       {showForm && (
         <div className="animate-fade-in-up">
-          <ServerForm onDone={() => setShowForm(false)} />
+          <ServerForm onDone={closeForm} initialServer={editingServer ?? undefined} />
         </div>
       )}
       {showImportForm && (
@@ -627,6 +668,7 @@ export function ServersView() {
                 isTesting={latencyTestingIds.has(server.id)}
                 pendingDelete={pendingDeleteId === server.id}
                 onTest={() => testServerLatency(server.id)}
+                onEdit={() => openEdit(server)}
                 onDuplicate={() => duplicateServer(server.id)}
                 onCopyShareUrl={() => copyShareUrl(server.id)}
                 onCloneToSelfBuilt={() => cloneToSelfBuilt(server.id)}

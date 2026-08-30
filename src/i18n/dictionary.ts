@@ -136,6 +136,7 @@ export interface Dictionary {
       tlsPlain: string;
       tlsReality: string;
     };
+    edit: string;
     duplicate: string;
     /** "Copy share link" -- hidden for `protocol === "wireguard"` (no
      * share-link format exists for it). */
@@ -166,6 +167,7 @@ export interface Dictionary {
 
   serverForm: {
     title: string;
+    editTitle: string;
     name: string;
     protocol: string;
     address: string;
@@ -187,6 +189,7 @@ export interface Dictionary {
     tlsRealityShortId: string;
     cancel: string;
     submit: string;
+    save: string;
   };
 
   rules: {
@@ -220,7 +223,12 @@ export interface Dictionary {
       toggleAriaLabel: string;
       regionLabel: string;
       regionExplainer: string;
-      presetAriaLabel: string;
+      regionAriaLabel: string;
+      regions: { cn: string; ir: string; ru: string };
+      reverseLabelCn: string;
+      reverseLabelOther: string;
+      reverseExplainer: string;
+      reverseAriaLabel: string;
       notActiveHint: string;
     };
     ruleListCard: {
@@ -229,14 +237,18 @@ export interface Dictionary {
       columnRule: string;
       columnStrategy: string;
       columnActions: string;
+      followsGlobal: string;
     };
     chain: {
       title: string;
-      stepRules: string;
-      stepSmart: string;
-      stepDefault: string;
-      instruction1: string;
-      instruction2: (outbound: string) => string;
+      stepCustomRules: string;
+      stepAppRouting: string;
+      stepRegionRouting: string;
+      stepDefaultOutbound: string;
+      instructionMatchTypes: string;
+      instructionDomainSuffix: string;
+      instructionProcessName: string;
+      instructionRuleSet: string;
     };
   };
 
@@ -448,6 +460,8 @@ export interface Dictionary {
     settingsSaveFailed: (msg: string) => string;
     serverAdded: (name: string) => string;
     serverAddFailed: (msg: string) => string;
+    serverUpdated: (name: string) => string;
+    serverUpdateFailed: (msg: string) => string;
     serverRemoved: string;
     serverDeleteFailed: (msg: string) => string;
     serverDuplicated: (name: string) => string;
@@ -473,6 +487,7 @@ export interface Dictionary {
     appRoutingUpdateFailed: (appLabel: string, msg: string) => string;
     presetApplied: (label: string) => string;
     presetApplyFailed: (msg: string) => string;
+    regionRoutingUpdateFailed: (msg: string) => string;
     proxyStartFailed: (msg: string) => string;
     proxyStopFailed: (msg: string) => string;
     dashboardOpenFailed: (msg: string) => string;

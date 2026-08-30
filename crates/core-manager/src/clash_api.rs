@@ -154,7 +154,15 @@ mod tests {
         };
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], &std::collections::HashMap::new(), false, shared_types::RuleOutbound::Proxy)
+            .start(
+                &server,
+                ProxyModeType::SystemProxy,
+                &[],
+                &std::collections::HashMap::new(),
+                false,
+                shared_types::RuleOutbound::Proxy,
+                &shared_types::RegionRoutingConfig::default(),
+            )
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);

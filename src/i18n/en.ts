@@ -149,6 +149,7 @@ export const en: Dictionary = {
       tlsPlain: "TLS",
       tlsReality: "TLS · Reality",
     },
+    edit: "Edit",
     duplicate: "Duplicate",
     copyShareUrl: "Copy share link",
     cloneToSelfBuilt: "Clone to self-built",
@@ -177,6 +178,7 @@ export const en: Dictionary = {
 
   serverForm: {
     title: "Add server",
+    editTitle: "Edit server",
     name: "Name",
     protocol: "Protocol",
     address: "Address",
@@ -198,6 +200,7 @@ export const en: Dictionary = {
     tlsRealityShortId: "Reality short ID",
     cancel: "Cancel",
     submit: "Add server",
+    save: "Save",
   },
 
   rules: {
@@ -232,10 +235,16 @@ export const en: Dictionary = {
     regionCard: {
       title: "Region routing",
       toggleAriaLabel: "Region routing",
-      regionLabel: "Region presets",
+      regionLabel: "Region",
       regionExplainer:
-        "Auto-route by preset: local traffic direct, overseas traffic via proxy. Only applies in Smart-routing mode.",
-      presetAriaLabel: "Region preset",
+        "Auto-route by region: local direct, overseas via proxy. Only applies in Smart mode.",
+      regionAriaLabel: "Region",
+      regions: { cn: "Mainland China", ir: "Iran", ru: "Russia" },
+      reverseLabelCn: "Back to China",
+      reverseLabelOther: "Reverse (access local content from abroad)",
+      reverseExplainer:
+        "Local via proxy, overseas direct -- access the selected region's local content from abroad.",
+      reverseAriaLabel: "Reverse",
       notActiveHint: "Not currently active -- only applies in Smart-routing mode.",
     },
     ruleListCard: {
@@ -244,16 +253,22 @@ export const en: Dictionary = {
       columnRule: "Rule",
       columnStrategy: "Strategy",
       columnActions: "Actions",
+      followsGlobal: "Follows global",
     },
     chain: {
-      title: "Routing priority",
-      stepRules: "Rules (top to bottom)",
-      stepSmart: "Smart routing",
-      stepDefault: "Default outbound",
-      instruction1:
-        "In Smart-routing mode, traffic is checked against the rule list above from top to bottom; the first enabled match wins.",
-      instruction2: (outbound) =>
-        `Traffic that matches no rule falls back to the default outbound below (currently ${outbound}).`,
+      title: "Rule explanation",
+      stepCustomRules: "Custom rules",
+      stepAppRouting: "App routing",
+      stepRegionRouting: "Region routing",
+      stepDefaultOutbound: "Default outbound",
+      instructionMatchTypes:
+        "Rules support 6 match types -- domain, domain suffix, domain keyword, IP CIDR, process name, and rule set (GeoIP/GeoSite). They're evaluated top to bottom; the first matching rule wins.",
+      instructionDomainSuffix:
+        '"Domain suffix" matches the domain and all its subdomains; "domain" matches only that exact domain.',
+      instructionProcessName:
+        '"Process name" rules only apply to connections from this machine (include .exe on Windows) -- handy for making one app bypass the proxy.',
+      instructionRuleSet:
+        '"Rule set" rules reference a GeoIP/GeoSite dataset downloaded on the Rule resources page; an undownloaded rule set is skipped automatically and has no effect.',
     },
   },
 
@@ -507,6 +522,8 @@ export const en: Dictionary = {
     settingsSaveFailed: (msg) => `Failed to save settings: ${msg}`,
     serverAdded: (name) => `Added server "${name}"`,
     serverAddFailed: (msg) => `Failed to add server: ${msg}`,
+    serverUpdated: (name) => `Updated server "${name}"`,
+    serverUpdateFailed: (msg) => `Failed to update server: ${msg}`,
     serverRemoved: "Server removed",
     serverDeleteFailed: (msg) => `Failed to delete server: ${msg}`,
     serverDuplicated: (name) => `Duplicated "${name}"`,
@@ -532,6 +549,7 @@ export const en: Dictionary = {
     appRoutingUpdateFailed: (appLabel, msg) => `Failed to update app routing for "${appLabel}": ${msg}`,
     presetApplied: (label) => `Applied preset "${label}"`,
     presetApplyFailed: (msg) => `Failed to apply preset: ${msg}`,
+    regionRoutingUpdateFailed: (msg) => `Failed to update region routing: ${msg}`,
     proxyStartFailed: (msg) => `Failed to start proxy: ${msg}`,
     proxyStopFailed: (msg) => `Failed to stop proxy: ${msg}`,
     dashboardOpenFailed: (msg) => `Failed to open sing-box dashboard: ${msg}`,

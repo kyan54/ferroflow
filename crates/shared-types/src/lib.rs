@@ -104,6 +104,47 @@ pub struct ServerConfig {
     pub source: ServerSource,
 }
 
+/// A region the automatic "地区分流" (region routing) baseline can key off
+/// of -- see [`RegionRoutingConfig`]. Mirrors the real FlowZ Electron app's
+/// `RegionId` (`src/shared/region-routing.ts`), scoped to the three regions
+/// that app ships baseline geo data for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RegionId {
+    Cn,
+    Ir,
+    Ru,
+}
+
+/// Automatic, lowest-priority geo-routing baseline layered underneath a
+/// user's own `UserConfig.rules` -- "region's traffic direct, everything
+/// else proxy" (forward, the default direction) or the reverse ("region's
+/// traffic proxy, everything else direct", for reaching home-region content
+/// while traveling). See `core_manager::config::region_baseline_rules` for
+/// how this gets turned into synthetic `RoutingRule`s appended after the
+/// user's own rules, so a user's specific rule always wins over this
+/// generic baseline (matching sing-box's top-to-bottom first-match-wins
+/// route evaluation).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionRoutingConfig {
+    pub enabled: bool,
+    pub region: RegionId,
+    pub reverse: bool,
+}
+
+impl Default for RegionRoutingConfig {
+    fn default() -> Self {
+        // Deliberately `enabled: false` -- unlike the real FlowZ Electron app
+        // (which defaults this on because it's replacing an *already-existing*
+        // hardcoded CN baseline, so enabling it by default is a zero-migration
+        // no-op for its users), ferroflow has never had this baseline before.
+        // Defaulting it on here would silently start routing existing users'
+        // live traffic differently the moment they upgrade -- opt-in instead.
+        Self { enabled: false, region: RegionId::Cn, reverse: false }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyMode {
@@ -369,6 +410,15 @@ pub struct UserConfig {
     /// always had, rather than failing to parse.
     #[serde(default = "default_outbound_proxy")]
     pub default_outbound: RuleOutbound,
+
+    /// Automatic geo-routing baseline for the Rules page's "地区分流" (region
+    /// routing) card -- see [`RegionRoutingConfig`]. `#[serde(default)]` so a
+    /// `config.json` persisted before this field existed still loads cleanly,
+    /// picking up `RegionRoutingConfig::default()` (`enabled: false`, a
+    /// deliberate no-op -- see that impl's doc comment) rather than failing
+    /// to parse.
+    #[serde(default)]
+    pub region_routing: RegionRoutingConfig,
 }
 
 fn default_outbound_proxy() -> RuleOutbound {
@@ -395,6 +445,7 @@ impl Default for UserConfig {
             rule_resource_auto_update: false,
             rule_resource_auto_update_interval_hours: default_rule_resource_auto_update_interval_hours(),
             default_outbound: default_outbound_proxy(),
+            region_routing: RegionRoutingConfig::default(),
         }
     }
 }

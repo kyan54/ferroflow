@@ -3,7 +3,6 @@ import type { SVGProps } from "react";
 import { useAppStore } from "../store";
 import { useTranslation } from "../i18n";
 import { RuleForm } from "../components/RuleForm";
-import { REGION_PRESETS, PRESET_RULE_PREFIX } from "../lib/appRouting";
 import {
   Card,
   CardHeader,
@@ -18,7 +17,8 @@ import {
 } from "../components/ui";
 import type { BadgeVariant, SegmentedOption } from "../components/ui";
 import { cn } from "../lib/utils";
-import type { RoutingRule, RuleOutbound } from "../types";
+import { REGION_IDS } from "../types";
+import type { RegionId, RoutingRule, RuleOutbound } from "../types";
 
 const OUTBOUND_BADGE: Record<RuleOutbound, BadgeVariant> = {
   proxy: "default",
@@ -31,13 +31,6 @@ const OUTBOUND_BADGE: Record<RuleOutbound, BadgeVariant> = {
  * `rules-page.tsx` -- a short list doesn't need searching, and showing an
  * empty search box permanently would just be clutter). */
 const SEARCH_THRESHOLD = 10;
-
-/** Region presets a user can pick with a single, non-destructive click on
- * this page's pill row -- excludes "Global proxy, no rules", which (per its
- * own `clearsAllRules` flag) wipes manual rules and app-routing toggles too.
- * That one stays a deliberate, confirm-guarded action on the App routing
- * page rather than a single-click pill here. */
-const REGION_PILL_PRESETS = REGION_PRESETS.filter((preset) => !preset.clearsAllRules);
 
 function icon(props: SVGProps<SVGSVGElement>) {
   return {
@@ -138,23 +131,13 @@ function AlertTriangleIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Parses the `presetId` out of one `PRESET_RULE_PREFIX`-tagged rule id
- * (`"preset:<presetId>:<index>"` -- see `buildPresetRules`). */
-function presetIdFromRuleId(ruleId: string): string {
-  const rest = ruleId.slice(PRESET_RULE_PREFIX.length);
-  const lastColon = rest.lastIndexOf(":");
-  return lastColon === -1 ? rest : rest.slice(0, lastColon);
-}
-
 export function RulesView() {
   const { t } = useTranslation();
   const config = useAppStore((s) => s.config);
   const deleteRule = useAppStore((s) => s.deleteRule);
   const updateRule = useAppStore((s) => s.updateRule);
   const commitRuleOrder = useAppStore((s) => s.commitRuleOrder);
-  const regionPresetBusy = useAppStore((s) => s.regionPresetBusy);
-  const applyRegionPreset = useAppStore((s) => s.applyRegionPreset);
-  const clearRegionPreset = useAppStore((s) => s.clearRegionPreset);
+  const updateRegionRouting = useAppStore((s) => s.updateRegionRouting);
   const pushToast = useAppStore((s) => s.pushToast);
 
   const [activeForm, setActiveForm] = useState<"new" | RoutingRule | null>(null);
@@ -200,25 +183,14 @@ export function RulesView() {
     return rule.values.some((v) => !ruleResourceIds.has(v));
   }
 
-  const activePresetId = useMemo(() => {
-    const presetRule = rules.find((r) => r.id.startsWith(PRESET_RULE_PREFIX));
-    return presetRule ? presetIdFromRuleId(presetRule.id) : null;
-  }, [rules]);
+  const regionRouting = config?.regionRouting ?? { enabled: false, region: "cn" as RegionId, reverse: false };
 
-  const regionOn = activePresetId != null && REGION_PILL_PRESETS.some((p) => p.id === activePresetId);
-
-  const regionOptions: SegmentedOption<string>[] = REGION_PILL_PRESETS.map((preset) => ({
-    value: preset.id,
-    label: t.appRouting.presets[preset.id as keyof typeof t.appRouting.presets].label,
+  const regionOptions: SegmentedOption<RegionId>[] = REGION_IDS.map((id) => ({
+    value: id,
+    label: t.rules.regionCard.regions[id],
   }));
 
-  function handleRegionToggle(checked: boolean) {
-    if (checked) {
-      applyRegionPreset(REGION_PILL_PRESETS[0].id);
-    } else {
-      clearRegionPreset();
-    }
-  }
+  const selectedServer = config?.servers.find((s) => s.id === config?.selectedServerId);
 
   function handleDelete(id: string) {
     if (pendingDeleteId === id) {
@@ -329,31 +301,46 @@ export function RulesView() {
         <CardHeader>
           <CardTitle>{t.rules.regionCard.title}</CardTitle>
           <Toggle
-            checked={regionOn}
-            onChange={handleRegionToggle}
-            disabled={regionPresetBusy}
+            checked={regionRouting.enabled}
+            onChange={(checked) => updateRegionRouting({ enabled: checked })}
             aria-label={t.rules.regionCard.toggleAriaLabel}
           />
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 pt-4">
-          <div>
-            <p className="text-sm font-medium text-fg">{t.rules.regionCard.regionLabel}</p>
-            <p className="mt-0.5 text-xs text-fg-faint">{t.rules.regionCard.regionExplainer}</p>
-          </div>
-          <SegmentedControl
-            options={regionOptions}
-            value={activePresetId ?? ""}
-            onChange={(id) => applyRegionPreset(id)}
-            disabled={regionPresetBusy}
-            aria-label={t.rules.regionCard.presetAriaLabel}
-          />
-          {!isSmartMode && (
-            <p className="flex items-center gap-1.5 text-xs text-fg-faint">
-              <span className="h-1.5 w-1.5 rounded-full bg-fg-faint" />
-              {t.rules.regionCard.notActiveHint}
-            </p>
-          )}
-        </CardContent>
+        {regionRouting.enabled && (
+          <CardContent className="flex flex-col gap-3 border-t border-line pt-4">
+            <div>
+              <p className="text-sm font-medium text-fg">{t.rules.regionCard.regionLabel}</p>
+              <p className="mt-0.5 text-xs text-fg-faint">{t.rules.regionCard.regionExplainer}</p>
+            </div>
+            <SegmentedControl
+              options={regionOptions}
+              value={regionRouting.region}
+              onChange={(region) => updateRegionRouting({ region })}
+              aria-label={t.rules.regionCard.regionAriaLabel}
+            />
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-fg">
+                  {regionRouting.region === "cn"
+                    ? t.rules.regionCard.reverseLabelCn
+                    : t.rules.regionCard.reverseLabelOther}
+                </p>
+                <p className="mt-0.5 text-xs text-fg-faint">{t.rules.regionCard.reverseExplainer}</p>
+              </div>
+              <Toggle
+                checked={regionRouting.reverse}
+                onChange={(checked) => updateRegionRouting({ reverse: checked })}
+                aria-label={t.rules.regionCard.reverseAriaLabel}
+              />
+            </div>
+            {!isSmartMode && (
+              <p className="flex items-center gap-1.5 text-xs text-fg-faint">
+                <span className="h-1.5 w-1.5 rounded-full bg-fg-faint" />
+                {t.rules.regionCard.notActiveHint}
+              </p>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       <Card>
@@ -520,6 +507,11 @@ export function RulesView() {
                               </Badge>
                             )}
                           </div>
+                          {rule.outbound === "proxy" && rule.enabled && (
+                            <p className="mt-0.5 truncate text-xs text-fg-faint">
+                              → {selectedServer?.name ?? "—"} · {t.rules.ruleListCard.followsGlobal}
+                            </p>
+                          )}
                         </td>
                         <td className="py-3 pl-2 pr-5">
                           <div className="flex items-center justify-end gap-0.5">
@@ -560,7 +552,12 @@ export function RulesView() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pt-4">
           <div className="flex flex-wrap items-center gap-1.5">
-            {[t.rules.chain.stepRules, t.rules.chain.stepSmart, t.rules.chain.stepDefault].map((step, i, arr) => (
+            {[
+              t.rules.chain.stepCustomRules,
+              t.rules.chain.stepAppRouting,
+              t.rules.chain.stepRegionRouting,
+              t.rules.chain.stepDefaultOutbound,
+            ].map((step, i, arr) => (
               <span key={step} className="flex items-center gap-1.5">
                 <span
                   className={cn(
@@ -574,10 +571,10 @@ export function RulesView() {
               </span>
             ))}
           </div>
-          <p className="text-xs text-fg-faint">{t.rules.chain.instruction1}</p>
-          <p className="text-xs text-fg-faint">
-            {t.rules.chain.instruction2(t.ruleForm.outboundLabels[config?.defaultOutbound ?? "proxy"])}
-          </p>
+          <p className="text-xs text-fg-faint">{t.rules.chain.instructionMatchTypes}</p>
+          <p className="text-xs text-fg-faint">{t.rules.chain.instructionDomainSuffix}</p>
+          <p className="text-xs text-fg-faint">{t.rules.chain.instructionProcessName}</p>
+          <p className="text-xs text-fg-faint">{t.rules.chain.instructionRuleSet}</p>
         </CardContent>
       </Card>
     </div>

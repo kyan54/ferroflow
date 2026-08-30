@@ -28,7 +28,7 @@ use helper_client::HelperClient;
 use sha2::{Digest, Sha256};
 use shared_types::{
     AppError, AppResult, ConnectionsSnapshot, ProxyErrorCode, ProxyModeType, ProxyStatus,
-    RoutingRule, RuleOutbound, ServerConfig, UnlockResult,
+    RegionRoutingConfig, RoutingRule, RuleOutbound, ServerConfig, UnlockResult,
 };
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -315,6 +315,19 @@ impl CoreManager {
     /// `build_tun_config` as the tag `route.final` resolves to. See that
     /// field's doc comment for why this exists (region presets needing a
     /// non-proxy catch-all).
+    ///
+    /// `region_routing` is the caller's current `UserConfig.region_routing`
+    /// -- threaded straight through to `config::build_config`/
+    /// `build_tun_config`, which append it as a synthetic, lowest-priority
+    /// rule layer after `rules` (see `config::region_baseline_rules`).
+    ///
+    /// `region_routing` pushed this over clippy's default 7-argument
+    /// threshold -- every parameter here is a distinct, independently
+    /// meaningful piece of `UserConfig`/run-time state (see the doc comments
+    /// above), not a case of one call doing too many unrelated things, so a
+    /// grouping struct would just move the same fields around rather than
+    /// simplify anything.
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &self,
         server: &ServerConfig,
@@ -323,6 +336,7 @@ impl CoreManager {
         resource_paths: &HashMap<String, PathBuf>,
         connection_history_enabled: bool,
         default_outbound: RuleOutbound,
+        region_routing: &RegionRoutingConfig,
     ) -> AppResult<ProxyStatus> {
         let mut guard = self.running.lock().await;
 
@@ -349,8 +363,15 @@ impl CoreManager {
                     )
                 })?;
 
-                let cfg =
-                    config::build_config(server, port, rules, resource_paths, clash_api_port, default_outbound);
+                let cfg = config::build_config(
+                    server,
+                    port,
+                    rules,
+                    resource_paths,
+                    region_routing,
+                    clash_api_port,
+                    default_outbound,
+                );
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -438,8 +459,14 @@ impl CoreManager {
                     )
                 })?;
 
-                let cfg =
-                    config::build_tun_config(server, rules, resource_paths, clash_api_port, default_outbound);
+                let cfg = config::build_tun_config(
+                    server,
+                    rules,
+                    resource_paths,
+                    region_routing,
+                    clash_api_port,
+                    default_outbound,
+                );
                 let config_path = write_temp_config(&cfg).map_err(|e| {
                     AppError::new("config_invalid", format!("failed to write sing-box config: {e}"))
                 })?;
@@ -884,7 +911,7 @@ mod tests {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
         let err = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false, RuleOutbound::Proxy)
+            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false, RuleOutbound::Proxy, &RegionRoutingConfig::default())
             .await
             .unwrap_err();
         assert_eq!(err.code, "core_start_failed");
@@ -899,7 +926,7 @@ mod tests {
         let manager = CoreManager::with_binary_path("definitely-not-a-real-binary-xyz");
         let server = test_server();
         let err = manager
-            .start(&server, ProxyModeType::Manual, &[], &HashMap::new(), false, RuleOutbound::Proxy)
+            .start(&server, ProxyModeType::Manual, &[], &HashMap::new(), false, RuleOutbound::Proxy, &RegionRoutingConfig::default())
             .await
             .unwrap_err();
         assert_eq!(err.code, "core_start_failed");
@@ -916,7 +943,7 @@ mod tests {
         let manager = CoreManager::with_binary_path("does-not-matter-for-this-path");
         let server = test_server();
         let err = manager
-            .start(&server, ProxyModeType::Tun, &[], &HashMap::new(), false, RuleOutbound::Proxy)
+            .start(&server, ProxyModeType::Tun, &[], &HashMap::new(), false, RuleOutbound::Proxy, &RegionRoutingConfig::default())
             .await
             .unwrap_err();
         assert_eq!(err.code, "helper_unavailable");
@@ -951,7 +978,7 @@ mod tests {
         let server = test_server();
 
         let started = manager
-            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false, RuleOutbound::Proxy)
+            .start(&server, ProxyModeType::SystemProxy, &[], &HashMap::new(), false, RuleOutbound::Proxy, &RegionRoutingConfig::default())
             .await
             .expect("start should succeed against a real sing-box binary");
         assert!(started.running);

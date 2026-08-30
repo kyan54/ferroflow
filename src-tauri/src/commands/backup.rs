@@ -396,6 +396,7 @@ mod tests {
             rule_resource_auto_update: false,
             rule_resource_auto_update_interval_hours: 24,
             default_outbound: RuleOutbound::Proxy,
+            region_routing: shared_types::RegionRoutingConfig::default(),
         }
     }
 

@@ -24,7 +24,9 @@ try {
 | `config_get` | — | `UserConfig` | reads in-memory state, loaded from `config.json` at startup |
 | `config_save` | `config: UserConfig` | `()` | overwrites + persists |
 | `servers_add` | `server: ServerConfig` | `UserConfig` | appends, persists, returns full config |
+| `servers_update` | `server: ServerConfig` | `UserConfig` | replaces the server matching `server.id` in place (no-op if not found), preserving list position -- backs the Servers page's "Edit" button |
 | `servers_delete` | `id: string` | `UserConfig` | removes, clears `selectedServerId` if it matched |
+| `region_routing_update` | `regionRouting: RegionRoutingConfig` | `UserConfig` | replaces `region_routing` wholesale, persists, returns full config -- backs the Rules page's "地区分流" (region routing) card |
 | `rules_add` | `rule: RoutingRule` | `UserConfig` | appends, persists, returns full config |
 | `rules_update` | `rule: RoutingRule` | `UserConfig` | replaces the rule with a matching `id`; no-op (current config unchanged) if the id isn't found |
 | `rules_delete` | `id: string` | `UserConfig` | removes the rule with that id |

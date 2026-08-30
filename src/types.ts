@@ -95,6 +95,25 @@ export const RULE_MATCH_TYPES: RuleMatchType[] = [
 export type RuleOutbound = "proxy" | "direct" | "block";
 export const RULE_OUTBOUNDS: RuleOutbound[] = ["proxy", "direct", "block"];
 
+/** Region a `RegionRoutingConfig` routes by -- mainland China, Iran, or Russia. */
+export type RegionId = "cn" | "ir" | "ru";
+export const REGION_IDS: RegionId[] = ["cn", "ir", "ru"];
+
+/** Backs the Rules page's "地区分流" (Region routing) card -- a single,
+ * simple region-based routing toggle distinct from the app-routing/region-
+ * preset machinery in `src/lib/appRouting.ts`. Only applies in Smart-routing
+ * mode (`UserConfig.proxyMode === "smart"`), same as manual rules. */
+export interface RegionRoutingConfig {
+  enabled: boolean;
+  region: RegionId;
+  /** When `false` (the default): local traffic for `region` goes direct,
+   * everything else via proxy. When `true`: local traffic goes via proxy and
+   * overseas traffic goes direct -- i.e. access `region`'s local content
+   * from abroad ("回国"/"Back to China" when `region === "cn"`, or a
+   * general "reverse" label otherwise). */
+  reverse: boolean;
+}
+
 export interface RoutingRule {
   id: string;
   name: string;
@@ -170,6 +189,10 @@ export interface UserConfig {
    * everything else direct/blocked".
    */
   defaultOutbound: RuleOutbound;
+
+  /** Backs the Rules page's "地区分流" (Region routing) card -- see
+   * `RegionRoutingConfig`'s doc comment. */
+  regionRouting: RegionRoutingConfig;
 }
 
 export type HelperPlatform = "windows" | "macos" | "linux";

@@ -148,7 +148,8 @@ export const zh: Dictionary = {
       tlsPlain: "TLS",
       tlsReality: "TLS · Reality",
     },
-    duplicate: "复制",
+    edit: "编辑",
+    duplicate: "复制节点",
     copyShareUrl: "复制分享链接",
     cloneToSelfBuilt: "克隆到自建节点",
     cloneToSelfBuiltName: (name) => `${name} (自建)`,
@@ -175,6 +176,7 @@ export const zh: Dictionary = {
 
   serverForm: {
     title: "添加节点",
+    editTitle: "编辑节点",
     name: "名称",
     protocol: "协议",
     address: "地址",
@@ -196,6 +198,7 @@ export const zh: Dictionary = {
     tlsRealityShortId: "Reality Short ID",
     cancel: "取消",
     submit: "添加节点",
+    save: "保存",
   },
 
   rules: {
@@ -227,9 +230,14 @@ export const zh: Dictionary = {
     regionCard: {
       title: "地区分流",
       toggleAriaLabel: "地区分流",
-      regionLabel: "地区预设",
-      regionExplainer: "按预设自动分流:本地直连,海外走代理。仅「智能路由」模式生效。",
-      presetAriaLabel: "地区预设",
+      regionLabel: "地区",
+      regionExplainer: "按地区自动分流：本地直连，海外走代理。仅「智能路由」模式生效。",
+      regionAriaLabel: "地区",
+      regions: { cn: "中国大陆", ir: "伊朗", ru: "俄罗斯" },
+      reverseLabelCn: "回国",
+      reverseLabelOther: "反向（海外访问本地）",
+      reverseExplainer: "本地走代理、海外直连——海外访问所选地区的本地内容。",
+      reverseAriaLabel: "反向",
       notActiveHint: "当前未生效 -- 仅「智能路由」模式下生效。",
     },
     ruleListCard: {
@@ -238,14 +246,21 @@ export const zh: Dictionary = {
       columnRule: "规则",
       columnStrategy: "策略",
       columnActions: "操作",
+      followsGlobal: "跟随全局",
     },
     chain: {
-      title: "分流优先级",
-      stepRules: "规则(从上到下)",
-      stepSmart: "智能路由",
-      stepDefault: "默认出站",
-      instruction1: "在「智能路由」模式下,流量按上方规则列表从上到下匹配,命中第一条已启用规则即生效。",
-      instruction2: (outbound) => `未匹配任何规则的流量按默认出站处理(当前:${outbound})。`,
+      title: "规则说明",
+      stepCustomRules: "自定义规则",
+      stepAppRouting: "应用分流",
+      stepRegionRouting: "地区分流",
+      stepDefaultOutbound: "默认出口",
+      instructionMatchTypes:
+        "规则支持域名、域名后缀、域名关键词、IP 段（CIDR）、进程名、规则集（GeoIP/GeoSite）共 6 种匹配类型，从上到下依次匹配，第一条命中的规则生效。",
+      instructionDomainSuffix: "「域名后缀」会匹配该域名及其所有子域名；「域名」仅精确匹配单个域名。",
+      instructionProcessName:
+        "「进程名」规则只对本机发起的连接生效（Windows 下需含 .exe 后缀），可用于让指定应用绕过代理。",
+      instructionRuleSet:
+        "「规则集」引用「规则资源」页下载的 GeoIP/GeoSite 数据集；未下载的规则集会被自动跳过，不会生效。",
     },
   },
 
@@ -494,6 +509,8 @@ export const zh: Dictionary = {
     settingsSaveFailed: (msg) => `保存设置失败: ${msg}`,
     serverAdded: (name) => `已添加节点「${name}」`,
     serverAddFailed: (msg) => `添加节点失败: ${msg}`,
+    serverUpdated: (name) => `已更新节点「${name}」`,
+    serverUpdateFailed: (msg) => `更新节点失败: ${msg}`,
     serverRemoved: "节点已删除",
     serverDeleteFailed: (msg) => `删除节点失败: ${msg}`,
     serverDuplicated: (name) => `已复制「${name}」`,
@@ -519,6 +536,7 @@ export const zh: Dictionary = {
     appRoutingUpdateFailed: (appLabel, msg) => `更新「${appLabel}」的分流方式失败: ${msg}`,
     presetApplied: (label) => `已应用预设「${label}」`,
     presetApplyFailed: (msg) => `应用预设失败: ${msg}`,
+    regionRoutingUpdateFailed: (msg) => `更新地区分流失败: ${msg}`,
     proxyStartFailed: (msg) => `启动代理失败: ${msg}`,
     proxyStopFailed: (msg) => `停止代理失败: ${msg}`,
     dashboardOpenFailed: (msg) => `打开 sing-box 面板失败: ${msg}`,

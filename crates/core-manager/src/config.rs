@@ -22,7 +22,9 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use shared_types::{Protocol, RoutingRule, RuleMatchType, RuleOutbound, ServerConfig, TlsConfig};
+use shared_types::{
+    Protocol, RegionId, RegionRoutingConfig, RoutingRule, RuleMatchType, RuleOutbound, ServerConfig, TlsConfig,
+};
 
 use crate::tun;
 
@@ -329,6 +331,104 @@ fn build_rule_set_entries(rules: &[RoutingRule], resource_paths: &HashMap<String
     entries
 }
 
+/// Builds a rule-set resource id in the exact `"<prefix>-<name>"` convention
+/// used everywhere else in this codebase (e.g. `"geosite-cn"`, `"geoip-cn"`)
+/// -- must match what `commands::rule_resources::resource_id` produces on
+/// the `src-tauri` side, since both derive from the same
+/// `RuleResourceInfo.id` convention. `core-manager` doesn't depend on
+/// `src-tauri` (that would be a backwards crate dependency), hence this
+/// small local duplicate rather than a shared call.
+fn geo_resource_id(prefix: &str, name: &str) -> String {
+    format!("{prefix}-{name}")
+}
+
+/// Local geo tags for each region -- the "home" side of the baseline (direct
+/// when forward, proxy when reverse). Mirrors the real FlowZ Electron app's
+/// `REGION_LOCAL_GEO` (`src/shared/region-routing.ts`) exactly.
+/// Returns `(geosite name, geoip name)`.
+fn region_local_geo(region: RegionId) -> (&'static str, &'static str) {
+    match region {
+        RegionId::Cn => ("cn", "cn"),
+        RegionId::Ir => ("category-ir", "ir"),
+        RegionId::Ru => ("category-ru", "ru"),
+    }
+}
+
+/// Foreign-side geosite tag, only meaningful for CN (no mature "not
+/// Iran"/"not Russia" upstream category exists -- mirrors `REGION_FOREIGN_GEO`
+/// in the same reference file; ir/ru fall back to the route's own `final`,
+/// same as the reference implementation).
+fn region_foreign_geosite(region: RegionId) -> Option<&'static str> {
+    match region {
+        RegionId::Cn => Some("geolocation-!cn"),
+        RegionId::Ir | RegionId::Ru => None,
+    }
+}
+
+/// Synthesizes the automatic "地区分流" (region routing) baseline as ordinary
+/// `RoutingRule`s so they flow through the exact same `build_route_rules`/
+/// `build_rule_set_entries` machinery as user-authored rules -- appended
+/// AFTER the user's own `rules` (see `build_config_with_inbound`) so a
+/// user's specific rule always wins over this generic baseline, matching
+/// sing-box's top-to-bottom first-match-wins evaluation. Returns an empty
+/// vec when `region.enabled` is false. Google-family domains are always
+/// treated as "foreign" regardless of region, matching the reference
+/// implementation's uniform `googleKeywords` handling.
+///
+/// Like every other `RuleSet`-type rule (see `build_route_rules`'s doc
+/// comment), a baseline rule silently drops (fails closed) when the geo
+/// resource it references hasn't actually been downloaded yet -- this
+/// function doesn't special-case that, it just emits ordinary `RuleSet`
+/// rules and lets the existing skip-on-missing-resource behavior handle it.
+fn region_baseline_rules(region: &RegionRoutingConfig) -> Vec<RoutingRule> {
+    if !region.enabled {
+        return Vec::new();
+    }
+    let (local_geosite, local_geoip) = region_local_geo(region.region);
+    let foreign_geosite = region_foreign_geosite(region.region);
+
+    let local_out = if region.reverse { RuleOutbound::Proxy } else { RuleOutbound::Direct };
+    let foreign_out = if region.reverse { RuleOutbound::Direct } else { RuleOutbound::Proxy };
+
+    let mut rules = vec![RoutingRule {
+        id: "region-baseline:google".into(),
+        name: "Region routing baseline (Google)".into(),
+        enabled: true,
+        match_type: RuleMatchType::DomainKeyword,
+        values: vec![
+            "google".into(),
+            "gmail".into(),
+            "youtube".into(),
+            "gstatic".into(),
+            "googleapis".into(),
+            "googlevideo".into(),
+        ],
+        outbound: foreign_out,
+    }];
+
+    if let Some(foreign_geosite) = foreign_geosite {
+        rules.push(RoutingRule {
+            id: "region-baseline:foreign".into(),
+            name: "Region routing baseline (foreign)".into(),
+            enabled: true,
+            match_type: RuleMatchType::RuleSet,
+            values: vec![geo_resource_id("geosite", foreign_geosite)],
+            outbound: foreign_out,
+        });
+    }
+
+    rules.push(RoutingRule {
+        id: "region-baseline:local".into(),
+        name: "Region routing baseline (local)".into(),
+        enabled: true,
+        match_type: RuleMatchType::RuleSet,
+        values: vec![geo_resource_id("geosite", local_geosite), geo_resource_id("geoip", local_geoip)],
+        outbound: local_out,
+    });
+
+    rules
+}
+
 /// Assembles the full sing-box config for a single-server MVP run: one
 /// `mixed` inbound on `inbound_port`, the server's proxy outbound plus a
 /// `direct` outbound (and a `block` outbound when needed), `route.rules`
@@ -345,6 +445,7 @@ pub fn build_config(
     inbound_port: u16,
     rules: &[RoutingRule],
     resource_paths: &HashMap<String, PathBuf>,
+    region_routing: &RegionRoutingConfig,
     clash_api_port: u16,
     default_outbound: RuleOutbound,
 ) -> Value {
@@ -353,6 +454,7 @@ pub fn build_config(
         build_inbound(inbound_port),
         rules,
         resource_paths,
+        region_routing,
         clash_api_port,
         default_outbound,
     )
@@ -372,6 +474,7 @@ pub fn build_tun_config(
     server: &ServerConfig,
     rules: &[RoutingRule],
     resource_paths: &HashMap<String, PathBuf>,
+    region_routing: &RegionRoutingConfig,
     clash_api_port: u16,
     default_outbound: RuleOutbound,
 ) -> Value {
@@ -380,6 +483,7 @@ pub fn build_tun_config(
         tun::build_tun_inbound(DEFAULT_TUN_INTERFACE_NAME),
         rules,
         resource_paths,
+        region_routing,
         clash_api_port,
         default_outbound,
     )
@@ -417,9 +521,21 @@ fn build_config_with_inbound(
     inbound: Value,
     rules: &[RoutingRule],
     resource_paths: &HashMap<String, PathBuf>,
+    region_routing: &RegionRoutingConfig,
     clash_api_port: u16,
     default_outbound: RuleOutbound,
 ) -> Value {
+    // The automatic geo-routing baseline (see `region_baseline_rules`) is
+    // appended AFTER the user's own `rules` -- sing-box evaluates
+    // `route.rules` top-to-bottom, first match wins, so a user's specific
+    // rule always takes precedence over this generic baseline. Used
+    // everywhere below that `rules` previously fed route/rule-set
+    // construction; the bare `rules` param itself is left untouched since
+    // nothing else in this function reads it.
+    let mut effective_rules: Vec<RoutingRule> = rules.to_vec();
+    effective_rules.extend(region_baseline_rules(region_routing));
+    let rules = effective_rules.as_slice();
+
     let proxy = build_outbound(server);
     let is_wireguard = matches!(server.protocol, Protocol::Wireguard);
 
@@ -646,7 +762,7 @@ mod tests {
             Some("/VydterpEvTguAzYGK2ntJ5JI02e7KqBGsxMC/bqqzQ=".into());
         server.wireguard_local_address = Some("10.0.0.2/32".into());
 
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         assert!(cfg["outbounds"]
             .as_array()
@@ -666,7 +782,7 @@ mod tests {
     #[test]
     fn non_wireguard_server_has_no_endpoints_key() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         assert!(cfg.get("endpoints").is_none());
     }
 
@@ -722,7 +838,7 @@ mod tests {
     #[test]
     fn full_config_has_mixed_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["inbounds"][0]["type"], "mixed");
         assert_eq!(cfg["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(cfg["inbounds"][0]["listen_port"], 12345);
@@ -741,7 +857,7 @@ mod tests {
         // `default_outbound` alone doesn't spuriously add a `block` outbound.
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::DomainSuffix, &[".netflix.com"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Direct);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Direct);
         assert_eq!(cfg["route"]["final"], DIRECT_OUTBOUND_TAG);
         assert!(cfg["outbounds"].as_array().unwrap().iter().all(|o| o["type"] != "block"));
     }
@@ -755,7 +871,7 @@ mod tests {
         // tests below, which exercise this exact scenario against the real
         // binary).
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Block);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Block);
         assert_eq!(cfg["route"]["final"], BLOCK_OUTBOUND_TAG);
         assert!(cfg["outbounds"]
             .as_array()
@@ -767,7 +883,7 @@ mod tests {
     #[test]
     fn full_tun_config_has_tun_inbound_and_final_route() {
         let server = base_server(Protocol::Trojan);
-        let cfg = build_tun_config(&server, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_tun_config(&server, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["inbounds"][0]["type"], "tun");
         assert_eq!(cfg["inbounds"][0]["interface_name"], DEFAULT_TUN_INTERFACE_NAME);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
@@ -847,7 +963,7 @@ mod tests {
     fn block_outbound_absent_when_no_block_rules() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
         assert!(cfg["outbounds"]
             .as_array()
@@ -860,7 +976,7 @@ mod tests {
     fn block_outbound_present_when_enabled_block_rule_exists() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         let outbounds = cfg["outbounds"].as_array().unwrap();
         assert_eq!(outbounds.len(), 3);
         assert!(outbounds.iter().any(|o| o["type"] == "block" && o["tag"] == BLOCK_OUTBOUND_TAG));
@@ -871,7 +987,7 @@ mod tests {
         let server = base_server(Protocol::Trojan);
         let mut r = rule(RuleMatchType::IpCidr, &["10.0.0.0/8"], RuleOutbound::Block);
         r.enabled = false;
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["outbounds"].as_array().unwrap().len(), 2);
     }
 
@@ -879,7 +995,7 @@ mod tests {
     fn route_rules_appear_in_generated_config() {
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::DomainSuffix, &[".cn"], RuleOutbound::Direct);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
         assert_eq!(cfg["route"]["rules"].as_array().unwrap().len(), 1);
         assert_eq!(cfg["route"]["rules"][0]["domain_suffix"], json!([".cn"]));
         assert_eq!(cfg["route"]["final"], PROXY_OUTBOUND_TAG);
@@ -892,7 +1008,7 @@ mod tests {
         resource_paths.insert("netflix".to_string(), PathBuf::from("/data/rule-resources/geosite-netflix.srs"));
 
         let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().expect("rule_set array present");
         assert_eq!(rule_set_entries.len(), 1);
@@ -913,7 +1029,7 @@ mod tests {
         let server = base_server(Protocol::Trojan);
         // Empty map -- "netflix" was never downloaded (or was deleted).
         let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         assert!(cfg["route"].get("rule_set").is_none(), "no rule_set entries should be emitted for an unknown id");
         assert!(cfg["route"]["rules"].as_array().unwrap().is_empty(), "the whole rule should be dropped, not just the unknown id");
@@ -927,7 +1043,7 @@ mod tests {
         // "youtube" deliberately absent from resource_paths.
 
         let r = rule(RuleMatchType::RuleSet, &["netflix", "youtube"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(rule_set_entries.len(), 1, "only the resolvable id should get a rule_set entry");
@@ -945,7 +1061,7 @@ mod tests {
 
         let rule_set_rule = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Direct);
         let domain_rule = rule(RuleMatchType::DomainSuffix, &[".example.com"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[rule_set_rule, domain_rule], &resource_paths, 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[rule_set_rule, domain_rule], &resource_paths, &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(rule_set_entries.len(), 1);
@@ -967,7 +1083,7 @@ mod tests {
 
         let r1 = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Direct);
         let r2 = rule(RuleMatchType::RuleSet, &["cn"], RuleOutbound::Block);
-        let cfg = build_config(&server, 12345, &[r1, r2], &resource_paths, 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r1, r2], &resource_paths, &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         let rule_set_entries = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(rule_set_entries.len(), 1, "the same resource id referenced twice should only be emitted once");
@@ -1016,7 +1132,7 @@ mod tests {
         ];
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &rules, &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &rules, &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         // Sanity-check the block outbound really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -1090,11 +1206,11 @@ mod tests {
         let server = base_server(Protocol::Trojan);
 
         let r = rule(RuleMatchType::DomainSuffix, &[".netflix.com"], RuleOutbound::Proxy);
-        let direct_cfg = build_config(&server, 12345, &[r], &HashMap::new(), 9999, RuleOutbound::Direct);
+        let direct_cfg = build_config(&server, 12345, &[r], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Direct);
         assert_eq!(direct_cfg["route"]["final"], DIRECT_OUTBOUND_TAG);
         check(&direct_cfg, &binary, "direct");
 
-        let block_cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Block);
+        let block_cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Block);
         assert_eq!(block_cfg["route"]["final"], BLOCK_OUTBOUND_TAG);
         assert!(block_cfg["outbounds"].as_array().unwrap().iter().any(|o| o["type"] == "block"));
         check(&block_cfg, &binary, "block");
@@ -1119,7 +1235,7 @@ mod tests {
         assert!(binary.is_file(), "expected a real sing-box binary at {}", binary.display());
 
         let server = base_server(Protocol::Trojan);
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 19999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 19999, RuleOutbound::Proxy);
 
         // Sanity-check the clash_api block really is present before handing
         // this to sing-box, so a failed `check` clearly means "sing-box
@@ -1191,7 +1307,7 @@ mod tests {
             Some("MihvP+gV2j8pb18XF/iI8DrXLj+AfScAscLfmlM2oLU=".into());
         server.wireguard_local_address = Some("10.0.0.2/32".into());
 
-        let cfg = build_config(&server, 12345, &[], &HashMap::new(), 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         // Sanity-check the endpoint shape before handing this to sing-box,
         // so a failed `check` clearly means "sing-box rejected the shape"
@@ -1267,7 +1383,7 @@ mod tests {
 
         let server = base_server(Protocol::Trojan);
         let r = rule(RuleMatchType::RuleSet, &["netflix"], RuleOutbound::Proxy);
-        let cfg = build_config(&server, 12345, &[r], &resource_paths, 9999, RuleOutbound::Proxy);
+        let cfg = build_config(&server, 12345, &[r], &resource_paths, &RegionRoutingConfig::default(), 9999, RuleOutbound::Proxy);
 
         // Sanity-check the shape before handing this to sing-box, so a
         // failed `check` clearly means "sing-box rejected the shape" rather
@@ -1373,6 +1489,7 @@ mod tests {
             12345,
             &[app_routing_rule, preset_rule],
             &resource_paths,
+            &RegionRoutingConfig::default(),
             9999,
             RuleOutbound::Proxy,
         );
@@ -1412,5 +1529,110 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    // -- Region routing baseline (`region_baseline_rules`) --------------
+
+    #[test]
+    fn region_routing_disabled_emits_no_baseline_rules() {
+        let server = base_server(Protocol::Trojan);
+        let region = RegionRoutingConfig { enabled: false, region: RegionId::Cn, reverse: false };
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &region, 9999, RuleOutbound::Proxy);
+        assert!(cfg["route"]["rules"].as_array().unwrap().is_empty());
+        assert!(cfg["route"].get("rule_set").is_none());
+    }
+
+    #[test]
+    fn region_routing_enabled_cn_forward_with_resources_produces_direct_local_and_proxy_foreign() {
+        let server = base_server(Protocol::Trojan);
+        let region = RegionRoutingConfig { enabled: true, region: RegionId::Cn, reverse: false };
+
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("geosite-cn".to_string(), PathBuf::from("/data/geosite-cn.srs"));
+        resource_paths.insert("geoip-cn".to_string(), PathBuf::from("/data/geoip-cn.srs"));
+        resource_paths.insert(
+            "geosite-geolocation-!cn".to_string(),
+            PathBuf::from("/data/geosite-geolocation-!cn.srs"),
+        );
+
+        let cfg = build_config(&server, 12345, &[], &resource_paths, &region, 9999, RuleOutbound::Proxy);
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 3, "google keyword rule + foreign rule-set rule + local rule-set rule");
+
+        // Google keywords are always treated as foreign -> proxy in forward mode.
+        assert_eq!(route_rules[0]["domain_keyword"], json!(["google", "gmail", "youtube", "gstatic", "googleapis", "googlevideo"]));
+        assert_eq!(route_rules[0]["outbound"], PROXY_OUTBOUND_TAG);
+
+        // Foreign geosite (geolocation-!cn) -> proxy in forward mode.
+        assert_eq!(route_rules[1]["rule_set"], json!(["ruleset-geosite-geolocation-!cn"]));
+        assert_eq!(route_rules[1]["outbound"], PROXY_OUTBOUND_TAG);
+
+        // Local (cn geosite + geoip) -> direct in forward mode.
+        assert_eq!(route_rules[2]["rule_set"], json!(["ruleset-geosite-cn", "ruleset-geoip-cn"]));
+        assert_eq!(route_rules[2]["outbound"], DIRECT_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn region_routing_reverse_flips_outbounds() {
+        let server = base_server(Protocol::Trojan);
+        let region = RegionRoutingConfig { enabled: true, region: RegionId::Cn, reverse: true };
+
+        let mut resource_paths = HashMap::new();
+        resource_paths.insert("geosite-cn".to_string(), PathBuf::from("/data/geosite-cn.srs"));
+        resource_paths.insert("geoip-cn".to_string(), PathBuf::from("/data/geoip-cn.srs"));
+        resource_paths.insert(
+            "geosite-geolocation-!cn".to_string(),
+            PathBuf::from("/data/geosite-geolocation-!cn.srs"),
+        );
+
+        let cfg = build_config(&server, 12345, &[], &resource_paths, &region, 9999, RuleOutbound::Proxy);
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 3);
+        // Google/foreign now go direct, local (cn) now goes through the proxy.
+        assert_eq!(route_rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
+        assert_eq!(route_rules[1]["outbound"], DIRECT_OUTBOUND_TAG);
+        assert_eq!(route_rules[2]["outbound"], PROXY_OUTBOUND_TAG);
+    }
+
+    #[test]
+    fn region_routing_ir_with_no_downloaded_resources_fails_closed() {
+        // Iran has no "foreign" geosite category (see `region_foreign_geosite`),
+        // so only the literal google-keyword rule and the resource-backed
+        // "local" rule-set rule would normally be emitted. With no resources
+        // downloaded at all, the local rule-set rule has no resolvable ids and
+        // is dropped entirely (same skip-on-missing-resource behavior as any
+        // other `RuleSet` rule -- see `build_route_rules`), leaving only the
+        // google-keyword rule.
+        let server = base_server(Protocol::Trojan);
+        let region = RegionRoutingConfig { enabled: true, region: RegionId::Ir, reverse: false };
+        let cfg = build_config(&server, 12345, &[], &HashMap::new(), &region, 9999, RuleOutbound::Proxy);
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 1, "only the resource-free google rule should survive");
+        assert!(route_rules[0].get("domain_keyword").is_some());
+        assert!(cfg["route"].get("rule_set").is_none());
+    }
+
+    #[test]
+    fn user_rule_wins_over_region_baseline_due_to_ordering() {
+        // The user's own rule must be evaluated before the automatic baseline
+        // -- sing-box's route.rules is first-match-wins, so appending the
+        // baseline AFTER user rules (rather than before) is what actually
+        // gives the user's rule priority.
+        let server = base_server(Protocol::Trojan);
+        let region = RegionRoutingConfig { enabled: true, region: RegionId::Cn, reverse: false };
+        let user_rule = rule(RuleMatchType::Domain, &["example.com"], RuleOutbound::Direct);
+
+        let cfg = build_config(&server, 12345, &[user_rule], &HashMap::new(), &region, 9999, RuleOutbound::Proxy);
+
+        let route_rules = cfg["route"]["rules"].as_array().unwrap();
+        // user rule + google-keyword baseline rule (the only baseline rule
+        // that survives with no downloaded geo resources).
+        assert_eq!(route_rules.len(), 2);
+        assert_eq!(route_rules[0]["domain"], json!(["example.com"]));
+        assert_eq!(route_rules[0]["outbound"], DIRECT_OUTBOUND_TAG);
+        assert!(route_rules[1].get("domain_keyword").is_some(), "baseline rule comes after the user's rule");
     }
 }

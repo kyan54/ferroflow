@@ -12,6 +12,7 @@ import type {
   LogEntry,
   PlatformInfo,
   ProxyStatus,
+  RegionRoutingConfig,
   RoutingRule,
   RuleResourceCategory,
   ServerConfig,
@@ -25,12 +26,16 @@ export const ipc = {
   configSave: (config: UserConfig) => invoke<void>("config_save", { config }),
 
   serversAdd: (server: ServerConfig) => invoke<UserConfig>("servers_add", { server }),
+  serversUpdate: (server: ServerConfig) => invoke<UserConfig>("servers_update", { server }),
   serversDelete: (id: string) => invoke<UserConfig>("servers_delete", { id }),
 
   rulesAdd: (rule: RoutingRule) => invoke<UserConfig>("rules_add", { rule }),
   rulesUpdate: (rule: RoutingRule) => invoke<UserConfig>("rules_update", { rule }),
   rulesDelete: (id: string) => invoke<UserConfig>("rules_delete", { id }),
   rulesReorder: (orderedIds: string[]) => invoke<UserConfig>("rules_reorder", { orderedIds }),
+
+  regionRoutingUpdate: (regionRouting: RegionRoutingConfig) =>
+    invoke<UserConfig>("region_routing_update", { regionRouting }),
 
   ruleResourcesCatalog: () => invoke<CatalogEntry[]>("rule_resources_catalog"),
   ruleResourcesDownload: (category: RuleResourceCategory, name: string) =>

@@ -94,6 +94,16 @@ pub fn builtin_catalog() -> Vec<CatalogEntry> {
         entry("playstation", Geosite, "PlayStation Network"),
         entry("anthropic", Geosite, "Anthropic / Claude"),
         entry("docker", Geosite, "Docker Hub"),
+        // Feeds the automatic "地区分流" (region routing) baseline (see
+        // `shared_types::RegionRoutingConfig` / `core_manager::config::
+        // region_baseline_rules`) for Iran/Russia, alongside the "cn"
+        // entries above -- these exact upstream filenames are confirmed
+        // correct against the real FlowZ Electron app, which already ships
+        // and unit-tests them.
+        entry("category-ir", Geosite, "Iran domains"),
+        entry("ir", GeoIp, "Iran IPs"),
+        entry("category-ru", Geosite, "Russia domains"),
+        entry("ru", GeoIp, "Russia IPs"),
     ]
 }
 
@@ -163,8 +173,12 @@ mod tests {
 
     #[test]
     fn builtin_catalog_is_a_small_curated_set() {
+        // Upper bound deliberately widened from 25 to 30 when the region-routing
+        // feature added four more entries (category-ir/ir/category-ru/ru, see
+        // `builtin_catalog` above) -- a real, deliberate expansion feeding the
+        // "地区分流" baseline, not scope creep.
         let catalog = builtin_catalog();
-        assert!(catalog.len() >= 15 && catalog.len() <= 25, "expected a curated ~15-20 entry catalog, got {}", catalog.len());
+        assert!(catalog.len() >= 15 && catalog.len() <= 30, "expected a curated ~15-25 entry catalog, got {}", catalog.len());
     }
 
     #[test]

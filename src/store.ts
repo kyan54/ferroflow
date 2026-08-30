@@ -23,6 +23,7 @@ import type {
   LogEntry,
   PlatformInfo,
   ProxyStatus,
+  RegionRoutingConfig,
   RoutingRule,
   RuleOutbound,
   RuleResourceCategory,
@@ -112,6 +113,7 @@ interface AppStore {
    * `saveConfig`. */
   setTheme: (theme: Theme) => Promise<void>;
   addServer: (server: ServerConfig) => Promise<void>;
+  updateServer: (server: ServerConfig) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
   duplicateServer: (id: string) => Promise<void>;
   /** "Clone to self-built": same as `duplicateServer`, but the copy always
@@ -158,6 +160,12 @@ interface AppStore {
    * "Global proxy, no rules" preset, which also wipes manual rules and is
    * left as a deliberate, confirm-guarded action on the App routing page. */
   clearRegionPreset: () => Promise<void>;
+  /** Merges `patch` onto `config.regionRouting` and saves via
+   * `ipc.regionRoutingUpdate` -- an instant, same-page toggle/control (the
+   * card's on/off switch, region picker, and reverse switch), so it follows
+   * `updateRule`'s "no success toast, just an error toast on failure"
+   * convention rather than `updateServer`'s full toast pair. */
+  updateRegionRouting: (patch: Partial<RegionRoutingConfig>) => Promise<void>;
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
@@ -360,6 +368,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("success", getT().toasts.serverAdded(server.name));
     } catch (err) {
       get().pushToast("error", getT().toasts.serverAddFailed(appErrorMessage(err)));
+    }
+  },
+
+  updateServer: async (server) => {
+    try {
+      const config = await ipc.serversUpdate(server);
+      set({ config });
+      get().pushToast("success", getT().toasts.serverUpdated(server.name));
+    } catch (err) {
+      get().pushToast("error", getT().toasts.serverUpdateFailed(appErrorMessage(err)));
     }
   },
 
@@ -619,6 +637,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().pushToast("error", getT().toasts.presetApplyFailed(appErrorMessage(err)));
     } finally {
       set({ regionPresetBusy: false });
+    }
+  },
+
+  updateRegionRouting: async (patch) => {
+    const current = get().config;
+    if (!current) return;
+    const merged: RegionRoutingConfig = { ...current.regionRouting, ...patch };
+    try {
+      const config = await ipc.regionRoutingUpdate(merged);
+      set({ config });
+    } catch (err) {
+      get().pushToast("error", getT().toasts.regionRoutingUpdateFailed(appErrorMessage(err)));
     }
   },
 
