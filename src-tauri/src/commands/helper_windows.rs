@@ -121,6 +121,13 @@ pub async fn install(app: &AppHandle) -> AppResult<(HelperStatus, Option<String>
         AppError::new("helper_install_failed", format!("failed to write temp token file: {err}"))
     })?;
 
+    // Truncate any stale error log from a previous failed attempt before
+    // this run, so a read-back after a *successful* run (or one that fails
+    // for a reason that never reaches the write in `main.rs`, e.g. a
+    // cancelled UAC prompt) can't be misattributed to this attempt.
+    let error_log = install_error_log_path(&binary);
+    let _ = std::fs::remove_file(&error_log);
+
     // Windows filenames can never contain `"`, so this naive quoting is
     // always safe for a path -- no need for full command-line escaping.
     let params = format!("--install --token-file \"{}\"", token_file.display());
@@ -136,7 +143,10 @@ pub async fn install(app: &AppHandle) -> AppResult<(HelperStatus, Option<String>
     if exit_code != 0 {
         return Err(AppError::new(
             "helper_install_failed",
-            format!("installer exited with code {exit_code}"),
+            format!(
+                "installer exited with code {exit_code}{}",
+                read_install_error_detail(&error_log)
+            ),
         ));
     }
 
@@ -187,7 +197,7 @@ pub async fn install(app: &AppHandle) -> AppResult<(HelperStatus, Option<String>
 /// swallowed rather than surfaced as `Err` -- this function always
 /// resolves to "not installed" from the caller's point of view, since
 /// that's the safe assumption once uninstall has been attempted at all.
-pub async fn uninstall() -> AppResult<HelperStatus> {
+pub async fn uninstall(app: &AppHandle) -> AppResult<HelperStatus> {
     let not_installed = HelperStatus {
         platform: HelperPlatform::Windows,
         installed: false,
@@ -196,14 +206,18 @@ pub async fn uninstall() -> AppResult<HelperStatus> {
         needs_repair: false,
     };
 
-    // No `AppHandle` is available here (see this function's signature),
-    // so unlike `install`, binary discovery can't fall back to
-    // `resource_dir()` -- only the env override and the dev-bin
-    // convenience path. In practice the packaged app's dispatcher is
-    // expected to already know the helper is installed before calling
-    // this (e.g. from a prior `get_status`), so the dev/env paths cover
-    // the cases this crate can actually test.
-    let binary = match locate_helper_binary(None) {
+    // Fixed 2026-08: this used to call `locate_helper_binary(None)`, unable
+    // to check `resource_dir()` at all without an `AppHandle` -- meaning
+    // uninstall could NEVER find the bundled helper binary in a real
+    // packaged app (only the env-var override or a `.dev-bin` convenience
+    // path, neither present in a real install), silently no-opping
+    // (returning `Ok(not_installed)` below via the "could not find" arm)
+    // instead of actually stopping/removing the service. Caught by testing
+    // this for real against a genuinely-installed helper service, not just
+    // trusting the type-checker -- the exact same class of bug as
+    // `helper_binary_missing` on the `install` side, just silent instead
+    // of a visible error, which is why it went unnoticed until now.
+    let binary = match locate_helper_binary(Some(app)) {
         Ok(path) => path,
         Err(tried) => {
             tracing::warn!(
@@ -215,13 +229,42 @@ pub async fn uninstall() -> AppResult<HelperStatus> {
         }
     };
 
+    let error_log = install_error_log_path(&binary);
+    let _ = std::fs::remove_file(&error_log);
+
     match run_elevated(&binary, "--uninstall") {
         Ok(0) => {}
-        Ok(code) => tracing::warn!("helper --uninstall exited with code {code}"),
+        Ok(code) => tracing::warn!(
+            "helper --uninstall exited with code {code}{}",
+            read_install_error_detail(&error_log)
+        ),
         Err(err) => tracing::warn!("failed to run elevated helper --uninstall: {}", err.message),
     }
 
     Ok(not_installed)
+}
+
+/// Where `--install`/`--uninstall` write their error message on failure --
+/// see `helper_proto::endpoints::WINDOWS_INSTALL_ERROR_LOG_NAME`'s doc
+/// comment for why this has to be a file next to the binary rather than
+/// anything `run_elevated`'s `ShellExecuteExW` call could capture
+/// directly.
+fn install_error_log_path(binary: &Path) -> PathBuf {
+    binary
+        .parent()
+        .map(|dir| dir.join(helper_proto::endpoints::WINDOWS_INSTALL_ERROR_LOG_NAME))
+        .unwrap_or_else(|| PathBuf::from(helper_proto::endpoints::WINDOWS_INSTALL_ERROR_LOG_NAME))
+}
+
+/// Best-effort read-back of `install_error_log_path`, formatted as a
+/// ready-to-append suffix (empty string if the log doesn't exist, e.g. a
+/// cancelled UAC prompt or a version of the helper binary older than this
+/// logging change).
+fn read_install_error_detail(log_path: &Path) -> String {
+    match std::fs::read_to_string(log_path) {
+        Ok(detail) if !detail.trim().is_empty() => format!(": {}", detail.trim()),
+        _ => String::new(),
+    }
 }
 
 /// Binary discovery, shared by `install` and `uninstall`, mirroring

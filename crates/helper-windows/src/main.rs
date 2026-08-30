@@ -65,6 +65,29 @@ fn main() {
 
         if let Err(err) = result {
             tracing::error!("helper-windows exited: {err:#}");
+            // `--install`/`--uninstall` run elevated via `ShellExecuteExW`
+            // from src-tauri's `run_elevated` (see that function's doc
+            // comment), which does not redirect the child's stdout/stderr
+            // anywhere the caller can read -- without this, every failure
+            // here collapsed into an opaque "installer exited with code 1"
+            // on the UI side, with the real reason (a `create_service`
+            // failure, an `icacls` failure, a missing token file, etc.)
+            // visible only in a console window nobody's watching during an
+            // elevation prompt. Best-effort: written next to the running
+            // exe (always writable/discoverable regardless of which
+            // account UAC elevation actually ran as, unlike a path under
+            // the *unprivileged* caller's `%TEMP%`), so
+            // `helper_windows.rs`'s `install`/`uninstall` commands can read
+            // it back and fold the real message into the error they
+            // surface to the frontend.
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    let _ = std::fs::write(
+                        dir.join(helper_proto::endpoints::WINDOWS_INSTALL_ERROR_LOG_NAME),
+                        format!("{err:#}"),
+                    );
+                }
+            }
             std::process::exit(1);
         }
     }

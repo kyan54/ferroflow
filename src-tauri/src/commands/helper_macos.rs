@@ -154,7 +154,14 @@ pub async fn install(app: &tauri::AppHandle) -> AppResult<(HelperStatus, Option<
 /// error, since the user asked to remove the helper and this reports it as
 /// removed from the app's perspective either way — matching this
 /// codebase's established "uninstall is best-effort" convention.
-pub async fn uninstall() -> AppResult<HelperStatus> {
+///
+/// Takes `_app` only so `commands/helper.rs`'s platform dispatch can call
+/// `uninstall(&app)` uniformly across all three platforms -- this
+/// implementation builds a self-contained removal script and never needs
+/// to resolve the bundled binary's `resource_dir()` the way Windows's
+/// `uninstall` does, unlike this crate's own `install`, which does use its
+/// `app` parameter (see `locate_helper_binary` below).
+pub async fn uninstall(_app: &tauri::AppHandle) -> AppResult<HelperStatus> {
     let script = helper_macos::install::build_uninstall_script();
 
     match write_private_script(&script) {

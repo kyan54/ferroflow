@@ -1,10 +1,17 @@
 //! Platform-agnostic Tauri command surface for the privileged helper.
 //! Dispatches to whichever of `helper_windows`/`helper_macos`/
 //! `helper_linux` matches this build's target OS -- each exposes the same
-//! `get_status(token)`/`install(app)`/`uninstall()` shape (see
+//! `get_status(token)`/`install(app)`/`uninstall(app)` shape (see
 //! `docs/ipc-contract.md`'s "Helper install flow" section), so this file
 //! only has to plug in the bits that differ from platform to platform
 //! (token persistence, pushing the token into `core_manager`).
+//!
+//! `uninstall` takes `app` even though only Windows currently needs it
+//! (to resolve the bundled binary's `resource_dir()` -- macOS/Linux build
+//! a self-contained removal script instead and never need to locate the
+//! binary at uninstall time) so the three platforms keep one shared
+//! signature here rather than this file needing per-platform special
+//! casing.
 
 use shared_types::{AppResult, HelperStatus};
 use tauri::{AppHandle, State};
@@ -39,7 +46,7 @@ pub async fn helper_install(app: AppHandle) -> AppResult<HelperStatus> {
 
 #[tauri::command]
 pub async fn helper_uninstall(app: AppHandle) -> AppResult<HelperStatus> {
-    let status = platform::uninstall().await?;
+    let status = platform::uninstall(&app).await?;
     if let Err(err) = state::set_persisted_helper_token(&app, None) {
         tracing::warn!("failed to remove persisted helper token: {err}");
     }

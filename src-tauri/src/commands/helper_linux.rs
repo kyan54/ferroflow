@@ -132,7 +132,13 @@ pub async fn install(app: &tauri::AppHandle) -> AppResult<(HelperStatus, Option<
 /// non-zero exit (including a cancelled auth prompt) is logged but does not
 /// turn into an `Err` — the user asked to remove the helper, so from the
 /// app's perspective it is gone either way.
-pub async fn uninstall() -> AppResult<HelperStatus> {
+///
+/// Takes `_app` only so `commands/helper.rs`'s platform dispatch can call
+/// `uninstall(&app)` uniformly across all three platforms -- this
+/// implementation builds a self-contained removal script and never needs
+/// to resolve the bundled binary's `resource_dir()` the way Windows's
+/// `uninstall` does.
+pub async fn uninstall(_app: &tauri::AppHandle) -> AppResult<HelperStatus> {
     let script = helper_linux::install::build_uninstall_script();
 
     match write_temp_script("ferroflow-helper-uninstall", &script) {

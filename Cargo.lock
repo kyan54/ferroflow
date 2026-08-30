@@ -1061,6 +1061,7 @@ dependencies = [
  "helper-client",
  "helper-linux",
  "helper-macos",
+ "helper-proto",
  "hex",
  "libc",
  "net",

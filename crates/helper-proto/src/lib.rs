@@ -116,4 +116,12 @@ pub mod endpoints {
     pub const LINUX_AUTHFILE: &str = "/var/lib/ferroflow/authorized-uids";
     pub const WINDOWS_PIPE: &str = r"\\.\pipe\ferroflow-helper";
     pub const WINDOWS_TOKEN_FILE: &str = r"C:\ProgramData\FerroFlow\helper.token";
+    /// Filename (not a full path -- always written next to whichever
+    /// `ferroflow-helper-windows.exe` actually ran) that `--install`/
+    /// `--uninstall` write their error message to on failure, so the
+    /// unprivileged caller (which can't see an elevated child's
+    /// stdout/stderr -- see `src-tauri/src/commands/helper_windows.rs`'s
+    /// `run_elevated` doc comment) can read the real reason back instead
+    /// of just an exit code.
+    pub const WINDOWS_INSTALL_ERROR_LOG_NAME: &str = "helper-install-error.log";
 }
