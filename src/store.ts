@@ -3,6 +3,8 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { ipc } from "./ipc";
 import { appErrorMessage } from "./types";
 import { newId } from "./lib/utils";
+import { getT, normalizeLanguage, setCurrentLanguage } from "./i18n/current";
+import type { Language } from "./i18n/dictionary";
 import {
   appRoutingRuleId,
   buildPresetRules,
@@ -44,6 +46,7 @@ let toastSeq = 0;
 
 interface AppStore {
   config: UserConfig | null;
+  language: Language;
   proxyStatus: ProxyStatus | null;
   systemProxyStatus: SystemProxyStatus | null;
   platformInfo: PlatformInfo | null;
@@ -78,6 +81,10 @@ interface AppStore {
   uninstallHelper: () => Promise<void>;
 
   saveConfig: (config: UserConfig) => Promise<void>;
+  /** Updates `language` state immediately (so the switch feels instant, no
+   * round-trip wait) and persists it via `saveConfig` -- same pattern as
+   * every other settings toggle in this store. */
+  setLanguage: (language: Language) => Promise<void>;
   addServer: (server: ServerConfig) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
   duplicateServer: (id: string) => Promise<void>;
@@ -131,6 +138,7 @@ interface AppStore {
 
 export const useAppStore = create<AppStore>((set, get) => ({
   config: null,
+  language: "en",
   proxyStatus: null,
   systemProxyStatus: null,
   platformInfo: null,
@@ -166,9 +174,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ configLoading: true });
     try {
       const config = await ipc.configGet();
-      set({ config });
+      const language = normalizeLanguage(config.language);
+      setCurrentLanguage(language);
+      set({ config, language });
     } catch (err) {
-      get().pushToast("error", `Failed to load config: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.loadConfigFailed(appErrorMessage(err)));
     } finally {
       set({ configLoading: false });
     }
@@ -202,7 +212,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           bypassList: [],
         },
       });
-      get().pushToast("info", `System proxy status unavailable: ${appErrorMessage(err)}`);
+      get().pushToast("info", getT().toasts.systemProxyStatusUnavailable(appErrorMessage(err)));
     }
   },
 
@@ -211,7 +221,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const platformInfo = await ipc.platformInfo();
       set({ platformInfo });
     } catch (err) {
-      get().pushToast("error", `Failed to load platform info: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.loadPlatformInfoFailed(appErrorMessage(err)));
     }
   },
 
@@ -225,7 +235,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // command itself isn't wired up on this platform) — surface it
       // quietly rather than a disruptive toast, matching refreshProxyStatus.
       set({ helperStatus: null });
-      get().pushToast("info", `Helper status unavailable: ${appErrorMessage(err)}`);
+      get().pushToast("info", getT().toasts.helperStatusUnavailable(appErrorMessage(err)));
     }
   },
 
@@ -234,9 +244,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const helperStatus = await ipc.helperInstall();
       set({ helperStatus });
-      get().pushToast("success", "Privileged helper installed");
+      get().pushToast("success", getT().toasts.helperInstalled);
     } catch (err) {
-      get().pushToast("error", `Failed to install helper: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.helperInstallFailed(appErrorMessage(err)));
     } finally {
       set({ helperBusy: false });
     }
@@ -247,9 +257,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const helperStatus = await ipc.helperUninstall();
       set({ helperStatus });
-      get().pushToast("success", "Privileged helper removed");
+      get().pushToast("success", getT().toasts.helperRemoved);
     } catch (err) {
-      get().pushToast("error", `Failed to remove helper: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.helperRemoveFailed(appErrorMessage(err)));
     } finally {
       set({ helperBusy: false });
     }
@@ -259,19 +269,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       await ipc.configSave(config);
       set({ config });
-      get().pushToast("success", "Settings saved");
+      get().pushToast("success", getT().toasts.settingsSaved);
     } catch (err) {
-      get().pushToast("error", `Failed to save settings: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.settingsSaveFailed(appErrorMessage(err)));
     }
+  },
+
+  setLanguage: async (language) => {
+    set({ language });
+    setCurrentLanguage(language);
+    const current = get().config;
+    if (!current) return;
+    await get().saveConfig({ ...current, language });
   },
 
   addServer: async (server) => {
     try {
       const config = await ipc.serversAdd(server);
       set({ config });
-      get().pushToast("success", `Added server "${server.name}"`);
+      get().pushToast("success", getT().toasts.serverAdded(server.name));
     } catch (err) {
-      get().pushToast("error", `Failed to add server: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.serverAddFailed(appErrorMessage(err)));
     }
   },
 
@@ -279,9 +297,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.serversDelete(id);
       set({ config });
-      get().pushToast("success", "Server removed");
+      get().pushToast("success", getT().toasts.serverRemoved);
     } catch (err) {
-      get().pushToast("error", `Failed to delete server: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.serverDeleteFailed(appErrorMessage(err)));
     }
   },
 
@@ -292,9 +310,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.serversAdd(clone);
       set({ config });
-      get().pushToast("success", `Duplicated "${original.name}"`);
+      get().pushToast("success", getT().toasts.serverDuplicated(original.name));
     } catch (err) {
-      get().pushToast("error", `Failed to duplicate server: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.serverDuplicateFailed(appErrorMessage(err)));
     }
   },
 
@@ -306,7 +324,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await ipc.configSave(next);
       set({ config: next });
     } catch (err) {
-      get().pushToast("error", `Failed to select server: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.serverSelectFailed(appErrorMessage(err)));
     }
   },
 
@@ -317,9 +335,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.subscriptionImport(url);
       set({ config });
       const imported = config.servers.length - before;
-      get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
+      get().pushToast("success", getT().toasts.serversImported(imported));
     } catch (err) {
-      get().pushToast("error", `Failed to import subscription: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.subscriptionImportFailed(appErrorMessage(err)));
     } finally {
       set({ subscriptionBusy: false });
     }
@@ -332,9 +350,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.subscriptionImportText(text);
       set({ config });
       const imported = config.servers.length - before;
-      get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
+      get().pushToast("success", getT().toasts.serversImported(imported));
     } catch (err) {
-      get().pushToast("error", `Failed to import servers: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.serversImportFailed(appErrorMessage(err)));
     } finally {
       set({ subscriptionBusy: false });
     }
@@ -347,9 +365,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.subscriptionImportFile(path);
       set({ config });
       const imported = config.servers.length - before;
-      get().pushToast("success", `Imported ${imported} server${imported === 1 ? "" : "s"}`);
+      get().pushToast("success", getT().toasts.serversImported(imported));
     } catch (err) {
-      get().pushToast("error", `Failed to import file: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.fileImportFailed(appErrorMessage(err)));
     } finally {
       set({ subscriptionBusy: false });
     }
@@ -360,9 +378,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.warpRegister();
       set({ config });
-      get().pushToast("success", "Registered Cloudflare WARP");
+      get().pushToast("success", getT().toasts.warpRegistered);
     } catch (err) {
-      get().pushToast("error", `Failed to register Cloudflare WARP: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.warpRegisterFailed(appErrorMessage(err)));
     } finally {
       set({ warpBusy: false });
     }
@@ -372,9 +390,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.rulesAdd(rule);
       set({ config });
-      get().pushToast("success", `Added rule "${rule.name}"`);
+      get().pushToast("success", getT().toasts.ruleAdded(rule.name));
     } catch (err) {
-      get().pushToast("error", `Failed to add rule: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleAddFailed(appErrorMessage(err)));
     }
   },
 
@@ -383,7 +401,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.rulesUpdate(rule);
       set({ config });
     } catch (err) {
-      get().pushToast("error", `Failed to update rule: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleUpdateFailed(appErrorMessage(err)));
     }
   },
 
@@ -391,9 +409,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.rulesDelete(id);
       set({ config });
-      get().pushToast("success", "Rule removed");
+      get().pushToast("success", getT().toasts.ruleRemoved);
     } catch (err) {
-      get().pushToast("error", `Failed to delete rule: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleDeleteFailed(appErrorMessage(err)));
     }
   },
 
@@ -407,7 +425,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.rulesReorder(ids);
       set({ config });
     } catch (err) {
-      get().pushToast("error", `Failed to reorder rules: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleReorderFailed(appErrorMessage(err)));
     }
   },
 
@@ -421,7 +439,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.rulesReorder(ids);
       set({ config });
     } catch (err) {
-      get().pushToast("error", `Failed to reorder rules: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleReorderFailed(appErrorMessage(err)));
     }
   },
 
@@ -460,7 +478,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         : await ipc.rulesAdd(rule);
       set({ config });
     } catch (err) {
-      get().pushToast("error", `Failed to update app routing for "${appLabel}": ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.appRoutingUpdateFailed(appLabel, appErrorMessage(err)));
     } finally {
       set({ appRoutingBusy: false });
     }
@@ -494,9 +512,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       await ipc.configSave(nextConfig);
       set({ config: nextConfig });
-      get().pushToast("success", `Applied preset "${preset.label}"`);
+      get().pushToast("success", getT().toasts.presetApplied(preset.label));
     } catch (err) {
-      get().pushToast("error", `Failed to apply preset: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.presetApplyFailed(appErrorMessage(err)));
     } finally {
       set({ regionPresetBusy: false });
     }
@@ -511,7 +529,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         get().pushToast("error", proxyStatus.error);
       }
     } catch (err) {
-      get().pushToast("error", `Failed to start proxy: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.proxyStartFailed(appErrorMessage(err)));
     } finally {
       set({ proxyBusy: false });
     }
@@ -526,7 +544,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         get().pushToast("error", proxyStatus.error);
       }
     } catch (err) {
-      get().pushToast("error", `Failed to stop proxy: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.proxyStopFailed(appErrorMessage(err)));
     } finally {
       set({ proxyBusy: false });
     }
@@ -536,7 +554,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       await ipc.dashboardOpen();
     } catch (err) {
-      get().pushToast("error", `Failed to open sing-box dashboard: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.dashboardOpenFailed(appErrorMessage(err)));
     }
   },
 
@@ -573,7 +591,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await ipc.connectionsClose(id);
       await get().refreshConnections();
     } catch (err) {
-      get().pushToast("error", `Failed to close connection: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.connectionCloseFailed(appErrorMessage(err)));
     }
   },
 
@@ -582,7 +600,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await ipc.connectionsCloseAll();
       await get().refreshConnections();
     } catch (err) {
-      get().pushToast("error", `Failed to close all connections: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.connectionsCloseAllFailed(appErrorMessage(err)));
     }
   },
 
@@ -595,7 +613,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // (a missing/never-enabled history file is `Ok([])`, not an error) --
       // a thrown error means something genuinely went wrong reading the
       // file, worth a toast.
-      get().pushToast("error", `Failed to load connection history: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.historyLoadFailed(appErrorMessage(err)));
     }
   },
 
@@ -603,9 +621,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       await ipc.historyClear();
       set({ historyEntries: [] });
-      get().pushToast("success", "Connection history cleared");
+      get().pushToast("success", getT().toasts.historyCleared);
     } catch (err) {
-      get().pushToast("error", `Failed to clear connection history: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.historyClearFailed(appErrorMessage(err)));
     }
   },
 
@@ -614,7 +632,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const logEntries = await ipc.logsGet();
       set({ logEntries });
     } catch (err) {
-      get().pushToast("error", `Failed to load logs: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.logsLoadFailed(appErrorMessage(err)));
     }
   },
 
@@ -622,9 +640,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       await ipc.logsClear();
       set({ logEntries: [] });
-      get().pushToast("success", "Logs cleared");
+      get().pushToast("success", getT().toasts.logsCleared);
     } catch (err) {
-      get().pushToast("error", `Failed to clear logs: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.logsClearFailed(appErrorMessage(err)));
     }
   },
 
@@ -636,9 +654,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!path) return;
     try {
       await ipc.backupExport(path);
-      get().pushToast("success", "Backup exported");
+      get().pushToast("success", getT().toasts.backupExported);
     } catch (err) {
-      get().pushToast("error", `Failed to export backup: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.backupExportFailed(appErrorMessage(err)));
     }
   },
 
@@ -652,9 +670,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.backupImport(path);
       set({ config });
-      get().pushToast("success", "Backup imported");
+      get().pushToast("success", getT().toasts.backupImported);
     } catch (err) {
-      get().pushToast("error", `Failed to import backup: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.backupImportFailed(appErrorMessage(err)));
     }
   },
 
@@ -666,9 +684,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!path) return;
     try {
       await ipc.diagnosticExport(path);
-      get().pushToast("success", "Diagnostic report exported");
+      get().pushToast("success", getT().toasts.diagnosticExported);
     } catch (err) {
-      get().pushToast("error", `Failed to export diagnostic report: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.diagnosticExportFailed(appErrorMessage(err)));
     }
   },
 
@@ -677,7 +695,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const ruleResourceCatalog = await ipc.ruleResourcesCatalog();
       set({ ruleResourceCatalog });
     } catch (err) {
-      get().pushToast("error", `Failed to load rule-resource catalog: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleResourceCatalogLoadFailed(appErrorMessage(err)));
     }
   },
 
@@ -686,9 +704,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.ruleResourcesDownload(category, name);
       set({ config });
-      get().pushToast("success", `Downloaded "${name}"`);
+      get().pushToast("success", getT().toasts.ruleResourceDownloaded(name));
     } catch (err) {
-      get().pushToast("error", `Failed to download rule resource: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleResourceDownloadFailed(appErrorMessage(err)));
     } finally {
       set({ ruleResourceBusy: false });
     }
@@ -699,9 +717,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.ruleResourcesDownloadCustom(name, category, url);
       set({ config });
-      get().pushToast("success", `Downloaded "${name}"`);
+      get().pushToast("success", getT().toasts.ruleResourceDownloaded(name));
     } catch (err) {
-      get().pushToast("error", `Failed to download rule resource: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleResourceDownloadFailed(appErrorMessage(err)));
     } finally {
       set({ ruleResourceBusy: false });
     }
@@ -712,9 +730,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.ruleResourcesUpdateAll();
       set({ config });
-      get().pushToast("success", "Rule resources updated");
+      get().pushToast("success", getT().toasts.ruleResourcesUpdated);
     } catch (err) {
-      get().pushToast("error", `Failed to update rule resources: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleResourcesUpdateFailed(appErrorMessage(err)));
     } finally {
       set({ ruleResourceBusy: false });
     }
@@ -724,9 +742,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const config = await ipc.ruleResourcesDelete(id);
       set({ config });
-      get().pushToast("success", "Rule resource removed");
+      get().pushToast("success", getT().toasts.ruleResourceRemoved);
     } catch (err) {
-      get().pushToast("error", `Failed to delete rule resource: ${appErrorMessage(err)}`);
+      get().pushToast("error", getT().toasts.ruleResourceDeleteFailed(appErrorMessage(err)));
     }
   },
 }));

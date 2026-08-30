@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SVGProps } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui";
+import { useTranslation } from "../i18n";
 import { formatBytes } from "../lib/utils";
 import { buildConnectionTopology, type TopologyNodeKind } from "../lib/connectionTopology";
 import { computeSankeyLayout, NODE_WIDTH } from "../lib/sankeyLayout";
@@ -80,6 +81,7 @@ export interface ConnectionTopologyProps {
  * no dedicated backend command, this just re-shapes data already on screen
  * elsewhere (`ConnectionsView`'s table). */
 export function ConnectionTopology({ snapshot, running }: ConnectionTopologyProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -122,15 +124,15 @@ export function ConnectionTopology({ snapshot, running }: ConnectionTopologyProp
   const lastColumnX = layout ? Math.max(...layout.nodes.map((n) => n.column)) : 0;
 
   const emptyMessage = !running
-    ? "Start the proxy to see live traffic flow."
+    ? t.dashboard.trafficFlow.emptyNotRunning
     : (snapshot?.connections.length ?? 0) === 0
-      ? "No active connections."
-      : "Connections are open but idle — waiting for traffic.";
+      ? t.dashboard.trafficFlow.emptyNoConnections
+      : t.dashboard.trafficFlow.emptyIdle;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Traffic flow</CardTitle>
+        <CardTitle>{t.dashboard.trafficFlow.title}</CardTitle>
       </CardHeader>
       <CardContent className="pt-4">
         <div ref={containerRef} className="w-full" style={{ height: CANVAS_HEIGHT }}>

@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../store";
+import { useTranslation } from "../i18n";
 import { formatBytes } from "../lib/utils";
 import { RULE_RESOURCE_CATEGORIES } from "../types";
 import type { RuleResourceCategory, RuleResourceInfo } from "../types";
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Toggle } from "../components/ui";
-
-const CATEGORY_LABELS: Record<RuleResourceCategory, string> = {
-  geosite: "GeoSite",
-  geoIp: "GeoIP",
-};
 
 const UPDATE_INTERVAL_OPTIONS = [6, 12, 24, 72, 168];
 
@@ -17,6 +13,7 @@ function catalogKey(name: string, category: RuleResourceCategory): string {
 }
 
 export function RuleResourcesView() {
+  const { t } = useTranslation();
   const config = useAppStore((s) => s.config);
   const saveConfig = useAppStore((s) => s.saveConfig);
   const ruleResourceCatalog = useAppStore((s) => s.ruleResourceCatalog);
@@ -49,7 +46,7 @@ export function RuleResourcesView() {
   }, [ruleResourceCatalog, selectedCatalogKey]);
 
   if (!config) {
-    return <div className="mx-auto max-w-3xl p-6 text-sm text-fg-faint">Loading…</div>;
+    return <div className="mx-auto max-w-3xl p-6 text-sm text-fg-faint">{t.common.loading}</div>;
   }
 
   const resources = config.ruleResources;
@@ -95,23 +92,15 @@ export function RuleResourcesView() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
-      <h1 className="font-display text-xl font-semibold text-fg">Rule resources</h1>
-      <p className="text-sm text-fg-faint">
-        GeoIP/GeoSite rule-set files (sing-box's <code>.srs</code> binary format), downloaded once and
-        referenced by name from a routing rule with match type "Rule set" instead of typing thousands
-        of domains by hand.
-      </p>
+      <h1 className="font-display text-xl font-semibold text-fg">{t.ruleResources.title}</h1>
+      <p className="text-sm text-fg-faint">{t.ruleResources.description}</p>
 
       <Card>
         <CardHeader>
-          <CardTitle>GitHub acceleration</CardTitle>
+          <CardTitle>{t.ruleResources.accel.title}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pt-4">
-          <p className="text-sm text-fg-faint">
-            Optional mirror prefix prepended in front of the real{" "}
-            <code>raw.githubusercontent.com</code> download URL -- useful when that host is slow or
-            blocked. Leave blank to fetch directly.
-          </p>
+          <p className="text-sm text-fg-faint">{t.ruleResources.accel.explainer}</p>
           <div className="flex gap-2">
             <Input
               value={accelPrefix}
@@ -119,23 +108,23 @@ export function RuleResourcesView() {
               placeholder="https://ghproxy.com/"
               className="flex-1"
             />
-            <Button onClick={handleSaveAccelPrefix}>Save</Button>
+            <Button onClick={handleSaveAccelPrefix}>{t.ruleResources.accel.save}</Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Auto update</CardTitle>
+          <CardTitle>{t.ruleResources.autoUpdate.title}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pt-4">
           <Toggle
             checked={config.ruleResourceAutoUpdate}
             onChange={toggleAutoUpdate}
-            label="Periodically re-download tracked rule resources"
+            label={t.ruleResources.autoUpdate.toggleLabel}
           />
           <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-            Interval
+            {t.ruleResources.autoUpdate.intervalLabel}
             <Select
               value={config.ruleResourceAutoUpdateIntervalHours}
               onChange={(e) => handleIntervalChange(Number(e.target.value))}
@@ -144,7 +133,7 @@ export function RuleResourcesView() {
             >
               {UPDATE_INTERVAL_OPTIONS.map((hours) => (
                 <option key={hours} value={hours}>
-                  Every {hours < 24 ? `${hours}h` : `${hours / 24}d`}
+                  {t.ruleResources.autoUpdate.intervalOption(hours)}
                 </option>
               ))}
             </Select>
@@ -154,34 +143,34 @@ export function RuleResourcesView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Add from catalog</CardTitle>
+          <CardTitle>{t.ruleResources.catalog.title}</CardTitle>
         </CardHeader>
         <CardContent className="flex items-end gap-2 pt-4">
           <label className="flex flex-1 flex-col gap-1 text-sm font-medium text-fg-dim">
-            Resource
+            {t.ruleResources.catalog.resourceLabel}
             <Select value={selectedCatalogKey} onChange={(e) => setSelectedCatalogKey(e.target.value)}>
               {ruleResourceCatalog.map((entry) => (
                 <option key={catalogKey(entry.name, entry.category)} value={catalogKey(entry.name, entry.category)}>
-                  {entry.label} ({CATEGORY_LABELS[entry.category]})
+                  {entry.label} ({t.ruleResources.categoryLabels[entry.category]})
                 </option>
               ))}
             </Select>
           </label>
           <Button busy={ruleResourceBusy} disabled={!selectedCatalogKey} onClick={handleDownloadFromCatalog}>
-            Download
+            {t.ruleResources.catalog.download}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Add custom</CardTitle>
+          <CardTitle>{t.ruleResources.custom.title}</CardTitle>
         </CardHeader>
         <form onSubmit={handleDownloadCustom}>
           <CardContent className="flex flex-col gap-3 pt-4">
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                Name
+                {t.ruleResources.custom.name}
                 <Input
                   required
                   value={customName}
@@ -190,20 +179,20 @@ export function RuleResourcesView() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                Category
+                {t.ruleResources.custom.category}
                 <Select
                   value={customCategory}
                   onChange={(e) => setCustomCategory(e.target.value as RuleResourceCategory)}
                 >
                   {RULE_RESOURCE_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
-                      {CATEGORY_LABELS[c]}
+                      {t.ruleResources.categoryLabels[c]}
                     </option>
                   ))}
                 </Select>
               </label>
               <label className="col-span-2 flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                URL
+                {t.ruleResources.custom.url}
                 <Input
                   required
                   value={customUrl}
@@ -214,7 +203,7 @@ export function RuleResourcesView() {
             </div>
             <div className="flex justify-end">
               <Button type="submit" busy={ruleResourceBusy}>
-                Download
+                {t.ruleResources.custom.download}
               </Button>
             </div>
           </CardContent>
@@ -223,7 +212,7 @@ export function RuleResourcesView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Downloaded resources</CardTitle>
+          <CardTitle>{t.ruleResources.downloaded.title}</CardTitle>
           <Button
             variant="ghost"
             size="sm"
@@ -231,7 +220,7 @@ export function RuleResourcesView() {
             busy={ruleResourceBusy}
             onClick={() => updateAllRuleResources()}
           >
-            Update all
+            {t.ruleResources.downloaded.updateAll}
           </Button>
         </CardHeader>
         <CardContent className="pt-4">
@@ -239,11 +228,11 @@ export function RuleResourcesView() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line text-fg-faint">
-                  <th className="py-2 pr-3 font-medium">Name</th>
-                  <th className="py-2 pr-3 font-medium">Category</th>
-                  <th className="py-2 pr-3 font-medium">Source</th>
-                  <th className="py-2 pr-3 font-medium">Size</th>
-                  <th className="py-2 pr-3 font-medium">Downloaded</th>
+                  <th className="py-2 pr-3 font-medium">{t.ruleResources.downloaded.columnName}</th>
+                  <th className="py-2 pr-3 font-medium">{t.ruleResources.downloaded.columnCategory}</th>
+                  <th className="py-2 pr-3 font-medium">{t.ruleResources.downloaded.columnSource}</th>
+                  <th className="py-2 pr-3 font-medium">{t.ruleResources.downloaded.columnSize}</th>
+                  <th className="py-2 pr-3 font-medium">{t.ruleResources.downloaded.columnDownloaded}</th>
                   <th className="py-2 pr-3 font-medium"></th>
                 </tr>
               </thead>
@@ -252,8 +241,8 @@ export function RuleResourcesView() {
                   <tr key={resource.id} className="border-b border-line/60 last:border-0">
                     <td className="py-2 pr-3 font-mono text-fg">{resource.name}</td>
                     <td className="py-2 pr-3 text-fg-dim">
-                      {CATEGORY_LABELS[resource.category]}
-                      {resource.isBuiltin ? "" : " (custom)"}
+                      {t.ruleResources.categoryLabels[resource.category]}
+                      {resource.isBuiltin ? "" : t.ruleResources.downloaded.customSuffix}
                     </td>
                     <td className="max-w-[220px] truncate py-2 pr-3 text-fg-faint" title={resource.sourceUrl}>
                       {resource.sourceUrl}
@@ -266,14 +255,16 @@ export function RuleResourcesView() {
                           onClick={() => downloadRuleResource(resource.category, resource.name)}
                           className="text-xs text-fg-faint hover:text-fg"
                         >
-                          Re-download
+                          {t.ruleResources.downloaded.redownload}
                         </button>
                         <button
                           onClick={() => handleDelete(resource.id)}
                           onBlur={() => setPendingDeleteId(null)}
                           className="text-xs text-fg-faint hover:text-err"
                         >
-                          {pendingDeleteId === resource.id ? "Confirm?" : "Delete"}
+                          {pendingDeleteId === resource.id
+                            ? t.ruleResources.downloaded.confirmDelete
+                            : t.ruleResources.downloaded.delete}
                         </button>
                       </div>
                     </td>
@@ -283,9 +274,7 @@ export function RuleResourcesView() {
             </table>
 
             {resources.length === 0 && (
-              <p className="mt-3 text-sm text-fg-faint">
-                No rule resources downloaded yet. Add one from the catalog above.
-              </p>
+              <p className="mt-3 text-sm text-fg-faint">{t.ruleResources.downloaded.empty}</p>
             )}
           </div>
         </CardContent>

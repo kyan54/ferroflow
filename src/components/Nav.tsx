@@ -1,4 +1,5 @@
 import type { SVGProps } from "react";
+import { useTranslation } from "../i18n";
 
 export type View =
   | "dashboard"
@@ -94,18 +95,20 @@ function SettingsIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-const TABS: { id: View; label: string; icon: typeof DashboardIcon }[] = [
-  { id: "dashboard", label: "Dashboard", icon: DashboardIcon },
-  { id: "servers", label: "Servers", icon: ServersIcon },
-  { id: "rules", label: "Rules", icon: RulesIcon },
-  { id: "appRouting", label: "App routing", icon: AppRoutingIcon },
-  { id: "ruleResources", label: "Rule resources", icon: RuleResourcesIcon },
-  { id: "connections", label: "Connections", icon: ConnectionsIcon },
-  { id: "logs", label: "Logs", icon: LogsIcon },
-  { id: "settings", label: "Settings", icon: SettingsIcon },
-];
-
 export function Nav({ active, onChange }: { active: View; onChange: (view: View) => void }) {
+  const { t } = useTranslation();
+
+  const TABS: { id: View; label: string; icon: typeof DashboardIcon }[] = [
+    { id: "dashboard", label: t.nav.dashboard, icon: DashboardIcon },
+    { id: "servers", label: t.nav.servers, icon: ServersIcon },
+    { id: "rules", label: t.nav.rules, icon: RulesIcon },
+    { id: "appRouting", label: t.nav.appRouting, icon: AppRoutingIcon },
+    { id: "ruleResources", label: t.nav.ruleResources, icon: RuleResourcesIcon },
+    { id: "connections", label: t.nav.connections, icon: ConnectionsIcon },
+    { id: "logs", label: t.nav.logs, icon: LogsIcon },
+    { id: "settings", label: t.nav.settings, icon: SettingsIcon },
+  ];
+
   return (
     <nav className="flex h-full w-[196px] shrink-0 flex-col border-r border-line bg-surface">
       <div className="flex items-center gap-2 px-5 pt-5 pb-4">
@@ -115,7 +118,7 @@ export function Nav({ active, onChange }: { active: View; onChange: (view: View)
           </svg>
         </span>
         <span className="font-display text-[15px] font-semibold tracking-tight text-fg">
-          Ferroflow
+          {t.nav.appName}
         </span>
       </div>
 

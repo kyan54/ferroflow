@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { SVGProps } from "react";
 import { useAppStore } from "../store";
+import { useTranslation } from "../i18n";
 import { cn, formatBytes } from "../lib/utils";
 import { PROXY_MODES, PROXY_MODE_TYPES } from "../types";
 import type { ProxyMode, ProxyModeType } from "../types";
@@ -16,18 +17,6 @@ import {
 } from "../components/ui";
 import { ConnectionTopology } from "../components/ConnectionTopology";
 import { UnlockStatusCard } from "../components/UnlockStatusCard";
-
-const TAKEOVER_LABELS: Record<ProxyModeType, string> = {
-  systemProxy: "System proxy",
-  tun: "TUN",
-  manual: "Manual",
-};
-
-const ROUTING_LABELS: Record<ProxyMode, string> = {
-  global: "Global",
-  smart: "Smart routing",
-  direct: "Direct",
-};
 
 /** Whole minutes only -- matches the reference app's header summary
  * ("运行时间: 598 分钟"), which is coarser than the HH:MM:SS the old
@@ -82,6 +71,7 @@ function ExternalLinkIcon(props: SVGProps<SVGSVGElement>) {
 }
 
 export function DashboardView() {
+  const { t } = useTranslation();
   const config = useAppStore((s) => s.config);
   const proxyStatus = useAppStore((s) => s.proxyStatus);
   const systemProxyStatus = useAppStore((s) => s.systemProxyStatus);
@@ -132,21 +122,21 @@ export function DashboardView() {
   const uptimeLabel = running ? formatUptimeMinutes(proxyStatus?.uptimeSecs) : null;
 
   const summaryParts = [
-    TAKEOVER_LABELS[proxyModeType],
-    ROUTING_LABELS[proxyMode],
-    uptimeLabel ? `Uptime: ${uptimeLabel}` : null,
+    t.dashboard.takeoverMode.labels[proxyModeType],
+    t.dashboard.routingStrategy.labels[proxyMode],
+    uptimeLabel ? t.dashboard.uptime(uptimeLabel) : null,
   ].filter((part): part is string => !!part);
 
   const runningServer = servers.find((s) => s.id === proxyStatus?.currentServerId);
   const connectionStateLabel = running
     ? [
-        "Connected",
+        t.dashboard.connected,
         runningServer?.name ?? proxyStatus?.currentServerId ?? null,
         runningServer ? `${runningServer.address}:${runningServer.port}` : null,
       ]
         .filter(Boolean)
         .join(" · ")
-    : "Disconnected";
+    : t.dashboard.disconnected;
 
   function setProxyModeType(modeType: ProxyModeType) {
     if (!config) return;
@@ -162,7 +152,7 @@ export function DashboardView() {
     <div className="flex h-full flex-col">
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h1 className="font-display text-xl font-semibold text-fg">Dashboard</h1>
+          <h1 className="font-display text-xl font-semibold text-fg">{t.dashboard.title}</h1>
           {summaryParts.length > 0 && (
             <p className="truncate text-xs text-fg-faint">{summaryParts.join(" · ")}</p>
           )}
@@ -170,13 +160,11 @@ export function DashboardView() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Exit node</CardTitle>
+            <CardTitle>{t.dashboard.exitNode.title}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 pt-4">
             {servers.length === 0 ? (
-              <p className="text-sm text-fg-faint">
-                No servers configured yet — add one in the Servers tab.
-              </p>
+              <p className="text-sm text-fg-faint">{t.dashboard.exitNode.empty}</p>
             ) : (
               <div className="flex items-center gap-2">
                 {/* One cohesive "current server" control: the visible dot +
@@ -213,19 +201,19 @@ export function DashboardView() {
                       </div>
                     </>
                   ) : (
-                    <span className="flex-1 text-sm text-fg-faint">Select a server…</span>
+                    <span className="flex-1 text-sm text-fg-faint">{t.dashboard.exitNode.selectPlaceholder}</span>
                   )}
 
                   <ChevronDownIcon className="h-4 w-4 shrink-0 text-fg-faint" />
 
                   <select
-                    aria-label="Exit node"
+                    aria-label={t.dashboard.exitNode.selectAriaLabel}
                     value={selectedServerId}
                     disabled={running}
                     onChange={(e) => selectServer(e.target.value || null)}
                     className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                   >
-                    <option value="">Select a server…</option>
+                    <option value="">{t.dashboard.exitNode.selectPlaceholder}</option>
                     {servers.map((server) => (
                       <option key={server.id} value={server.id}>
                         {server.name} ({server.protocol})
@@ -238,8 +226,8 @@ export function DashboardView() {
                   variant="ghost"
                   size="icon"
                   disabled={!running}
-                  title="Open sing-box dashboard"
-                  aria-label="Open sing-box dashboard"
+                  title={t.dashboard.exitNode.openDashboardTooltip}
+                  aria-label={t.dashboard.exitNode.openDashboardTooltip}
                   onClick={openDashboard}
                 >
                   <ExternalLinkIcon className="h-4 w-4" />
@@ -250,8 +238,8 @@ export function DashboardView() {
                     type="button"
                     onClick={stopProxy}
                     disabled={!canStop}
-                    title="Stop"
-                    aria-label="Stop"
+                    title={t.dashboard.exitNode.stop}
+                    aria-label={t.dashboard.exitNode.stop}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-err text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {proxyBusy ? <Spinner className="h-4 w-4" /> : <StopIcon className="h-4 w-4" />}
@@ -261,8 +249,8 @@ export function DashboardView() {
                     type="button"
                     onClick={() => selectedServerId && startProxy(selectedServerId)}
                     disabled={!canStart}
-                    title={!selectedServerId ? "Select a server first" : "Start"}
-                    aria-label="Start"
+                    title={!selectedServerId ? t.dashboard.exitNode.selectServerFirst : t.dashboard.exitNode.start}
+                    aria-label={t.dashboard.exitNode.start}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-flow text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {proxyBusy ? <Spinner className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
@@ -283,39 +271,36 @@ export function DashboardView() {
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Takeover mode</CardTitle>
+              <CardTitle>{t.dashboard.takeoverMode.title}</CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
               <SegmentedControl
-                aria-label="Takeover mode"
+                aria-label={t.dashboard.takeoverMode.ariaLabel}
                 value={proxyModeType}
                 onChange={setProxyModeType}
                 options={PROXY_MODE_TYPES.map((modeType) => ({
                   value: modeType,
-                  label: TAKEOVER_LABELS[modeType],
+                  label: t.dashboard.takeoverMode.labels[modeType],
                 }))}
               />
               {proxyModeType === "tun" && !helperStatus?.ready && (
-                <p className="mt-3 text-xs text-warn">
-                  TUN mode needs the privileged helper installed (Settings → Privileged helper) —
-                  starting the proxy without it will fail.
-                </p>
+                <p className="mt-3 text-xs text-warn">{t.dashboard.takeoverMode.tunWarning}</p>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Routing strategy</CardTitle>
+              <CardTitle>{t.dashboard.routingStrategy.title}</CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
               <SegmentedControl
-                aria-label="Routing strategy"
+                aria-label={t.dashboard.routingStrategy.ariaLabel}
                 value={proxyMode}
                 onChange={setProxyMode}
                 options={PROXY_MODES.map((mode) => ({
                   value: mode,
-                  label: ROUTING_LABELS[mode],
+                  label: t.dashboard.routingStrategy.labels[mode],
                 }))}
               />
             </CardContent>
@@ -338,25 +323,25 @@ export function DashboardView() {
             now mirrors the reference app. */}
         <Card>
           <CardHeader>
-            <CardTitle>System proxy</CardTitle>
+            <CardTitle>{t.dashboard.systemProxy.title}</CardTitle>
             <div className="flex items-center gap-2">
               <Badge variant={systemProxyStatus?.enabled ? "success" : "secondary"}>
-                {systemProxyStatus?.enabled ? "Enabled" : "Disabled"}
+                {systemProxyStatus?.enabled ? t.dashboard.systemProxy.enabled : t.dashboard.systemProxy.disabled}
               </Badge>
               <Button variant="ghost" size="sm" onClick={refreshSystemProxyStatus}>
-                Refresh
+                {t.dashboard.systemProxy.refresh}
               </Button>
             </div>
           </CardHeader>
           <CardContent className="pt-4">
             <dl className="grid grid-cols-2 gap-y-2 text-sm">
-              <dt className="text-fg-faint">HTTP proxy</dt>
+              <dt className="text-fg-faint">{t.dashboard.systemProxy.httpProxy}</dt>
               <dd className="font-mono text-fg-dim">{systemProxyStatus?.httpProxy ?? "—"}</dd>
-              <dt className="text-fg-faint">HTTPS proxy</dt>
+              <dt className="text-fg-faint">{t.dashboard.systemProxy.httpsProxy}</dt>
               <dd className="font-mono text-fg-dim">{systemProxyStatus?.httpsProxy ?? "—"}</dd>
-              <dt className="text-fg-faint">SOCKS proxy</dt>
+              <dt className="text-fg-faint">{t.dashboard.systemProxy.socksProxy}</dt>
               <dd className="font-mono text-fg-dim">{systemProxyStatus?.socksProxy ?? "—"}</dd>
-              <dt className="text-fg-faint">Bypass list</dt>
+              <dt className="text-fg-faint">{t.dashboard.systemProxy.bypassList}</dt>
               <dd className="text-fg-dim">
                 {systemProxyStatus?.bypassList?.length
                   ? systemProxyStatus.bypassList.join(", ")
@@ -377,10 +362,10 @@ export function DashboardView() {
         </span>
         <span className="flex items-center gap-3 font-mono text-fg-dim">
           <span className="text-dn">
-            ↓ {formatBytes(connectionsSnapshot?.downloadTotal ?? 0)} total
+            {t.dashboard.downloadTotal(formatBytes(connectionsSnapshot?.downloadTotal ?? 0))}
           </span>
           <span className="text-up">
-            ↑ {formatBytes(connectionsSnapshot?.uploadTotal ?? 0)} total
+            {t.dashboard.uploadTotal(formatBytes(connectionsSnapshot?.uploadTotal ?? 0))}
           </span>
         </span>
       </div>

@@ -1,4 +1,5 @@
 import { useAppStore } from "../store";
+import { useTranslation } from "../i18n";
 
 const KIND_STYLES: Record<string, string> = {
   info: "bg-surface-3 text-fg border border-line",
@@ -7,6 +8,7 @@ const KIND_STYLES: Record<string, string> = {
 };
 
 export function ToastStack() {
+  const { t } = useTranslation();
   const toasts = useAppStore((s) => s.toasts);
   const dismissToast = useAppStore((s) => s.dismissToast);
 
@@ -25,7 +27,7 @@ export function ToastStack() {
           <button
             onClick={() => dismissToast(toast.id)}
             className="shrink-0 opacity-70 hover:opacity-100"
-            aria-label="Dismiss"
+            aria-label={t.common.dismiss}
           >
             ✕
           </button>

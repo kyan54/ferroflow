@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAppStore } from "../store";
+import { useTranslation } from "../i18n";
 import { PROTOCOLS } from "../types";
 import type { Protocol, ServerConfig } from "../types";
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Toggle } from "./ui";
@@ -19,6 +20,7 @@ const PROTOCOL_FIELDS: Record<Protocol, { uuid: boolean; password: boolean; encr
 const PROTOCOLS_WITH_TLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess"];
 
 export function ServerForm({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const addServer = useAppStore((s) => s.addServer);
 
   const [name, setName] = useState("");
@@ -93,17 +95,17 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
     <Card>
       <form onSubmit={handleSubmit}>
         <CardHeader>
-          <CardTitle>Add server</CardTitle>
+          <CardTitle>{t.serverForm.title}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-              Name
+              {t.serverForm.name}
               <Input required value={name} onChange={(e) => setName(e.target.value)} />
             </label>
 
             <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-              Protocol
+              {t.serverForm.protocol}
               <Select value={protocol} onChange={(e) => setProtocol(e.target.value as Protocol)}>
                 {PROTOCOLS.map((p) => (
                   <option key={p} value={p}>
@@ -114,7 +116,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
             </label>
 
             <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-              Address
+              {t.serverForm.address}
               <Input
                 required
                 value={address}
@@ -124,7 +126,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
             </label>
 
             <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-              Port
+              {t.serverForm.port}
               <Input
                 required
                 type="number"
@@ -137,21 +139,21 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
 
             {fields.uuid && (
               <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                UUID
+                {t.serverForm.uuid}
                 <Input value={uuid} onChange={(e) => setUuid(e.target.value)} />
               </label>
             )}
 
             {fields.password && (
               <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                Password
+                {t.serverForm.password}
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
               </label>
             )}
 
             {fields.encryption && (
               <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                {protocol === "shadowsocks" ? "Cipher" : "Encryption"}
+                {protocol === "shadowsocks" ? t.serverForm.cipher : t.serverForm.encryption}
                 <Input
                   value={encryption}
                   onChange={(e) => setEncryption(e.target.value)}
@@ -162,7 +164,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
 
             {fields.flow && (
               <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                Flow
+                {t.serverForm.flow}
                 <Input
                   value={flow}
                   onChange={(e) => setFlow(e.target.value)}
@@ -174,7 +176,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
             {isWireguard && (
               <>
                 <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                  Private key
+                  {t.serverForm.wireguardPrivateKey}
                   <Input
                     value={wireguardPrivateKey}
                     onChange={(e) => setWireguardPrivateKey(e.target.value)}
@@ -183,7 +185,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
                 </label>
 
                 <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                  Peer public key
+                  {t.serverForm.wireguardPeerPublicKey}
                   <Input
                     value={wireguardPeerPublicKey}
                     onChange={(e) => setWireguardPeerPublicKey(e.target.value)}
@@ -192,7 +194,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
                 </label>
 
                 <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                  Pre-shared key (optional)
+                  {t.serverForm.wireguardPreSharedKey}
                   <Input
                     value={wireguardPreSharedKey}
                     onChange={(e) => setWireguardPreSharedKey(e.target.value)}
@@ -201,7 +203,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
                 </label>
 
                 <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                  Local address
+                  {t.serverForm.wireguardLocalAddress}
                   <Input
                     value={wireguardLocalAddress}
                     onChange={(e) => setWireguardLocalAddress(e.target.value)}
@@ -214,27 +216,27 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
 
           {showTls && (
             <fieldset className="rounded-lg border border-line p-3">
-              <legend className="px-1 text-sm font-medium text-fg-dim">TLS</legend>
-              <Toggle checked={tlsEnabled} onChange={setTlsEnabled} label="Enabled" />
+              <legend className="px-1 text-sm font-medium text-fg-dim">{t.serverForm.tlsLegend}</legend>
+              <Toggle checked={tlsEnabled} onChange={setTlsEnabled} label={t.serverForm.tlsEnabled} />
 
               {tlsEnabled && (
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                    Server name (SNI)
+                    {t.serverForm.tlsServerName}
                     <Input value={serverName} onChange={(e) => setServerName(e.target.value)} />
                   </label>
 
                   <div className="flex items-end pb-1.5">
-                    <Toggle checked={insecure} onChange={setInsecure} label="Allow insecure (skip cert verify)" />
+                    <Toggle checked={insecure} onChange={setInsecure} label={t.serverForm.tlsInsecure} />
                   </div>
 
                   <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                    Reality public key
+                    {t.serverForm.tlsRealityPublicKey}
                     <Input value={realityPublicKey} onChange={(e) => setRealityPublicKey(e.target.value)} />
                   </label>
 
                   <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
-                    Reality short ID
+                    {t.serverForm.tlsRealityShortId}
                     <Input value={realityShortId} onChange={(e) => setRealityShortId(e.target.value)} />
                   </label>
                 </div>
@@ -244,10 +246,10 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
+              {t.serverForm.cancel}
             </Button>
             <Button type="submit" busy={submitting}>
-              Add server
+              {t.serverForm.submit}
             </Button>
           </div>
         </CardContent>

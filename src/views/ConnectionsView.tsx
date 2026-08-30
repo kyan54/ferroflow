@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAppStore } from "../store";
+import { useTranslation } from "../i18n";
 import type { ConnectionMetadata, HistoryEntry } from "../types";
 import { Card, CardHeader, CardTitle, CardContent, Button } from "../components/ui";
 
@@ -21,6 +22,7 @@ function destinationLabel(metadata: ConnectionMetadata): string {
 }
 
 export function ConnectionsView() {
+  const { t } = useTranslation();
   const connectionsSnapshot = useAppStore((s) => s.connectionsSnapshot);
   const refreshConnections = useAppStore((s) => s.refreshConnections);
   const closeConnection = useAppStore((s) => s.closeConnection);
@@ -46,26 +48,26 @@ export function ConnectionsView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
-      <h1 className="font-display text-xl font-semibold text-fg">Connections</h1>
+      <h1 className="font-display text-xl font-semibold text-fg">{t.connections.title}</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Active connections</CardTitle>
+          <CardTitle>{t.connections.activeTitle}</CardTitle>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={refreshConnections}>
-              Refresh
+              {t.connections.refresh}
             </Button>
             <Button variant="destructive" size="sm" disabled={connections.length === 0} onClick={closeAllConnections}>
-              Close all
+              {t.connections.closeAll}
             </Button>
           </div>
         </CardHeader>
 
         <CardContent className="pt-4">
           <dl className="grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-fg-faint">Total downloaded</dt>
+            <dt className="text-fg-faint">{t.connections.totalDownloaded}</dt>
             <dd className="font-mono text-dn">{formatBytes(connectionsSnapshot?.downloadTotal ?? 0)}</dd>
-            <dt className="text-fg-faint">Total uploaded</dt>
+            <dt className="text-fg-faint">{t.connections.totalUploaded}</dt>
             <dd className="font-mono text-up">{formatBytes(connectionsSnapshot?.uploadTotal ?? 0)}</dd>
           </dl>
 
@@ -73,12 +75,12 @@ export function ConnectionsView() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line text-fg-faint">
-                  <th className="py-2 pr-3 font-medium">Destination</th>
-                  <th className="py-2 pr-3 font-medium">Network</th>
-                  <th className="py-2 pr-3 font-medium">Chain</th>
-                  <th className="py-2 pr-3 font-medium">Rule</th>
-                  <th className="py-2 pr-3 font-medium">Download</th>
-                  <th className="py-2 pr-3 font-medium">Upload</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnDestination}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnNetwork}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnChain}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnRule}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnDownload}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnUpload}</th>
                   <th className="py-2 pr-3 font-medium"></th>
                 </tr>
               </thead>
@@ -96,7 +98,7 @@ export function ConnectionsView() {
                         onClick={() => closeConnection(conn.id)}
                         className="text-xs text-fg-faint hover:text-err"
                       >
-                        Close
+                        {t.connections.close}
                       </button>
                     </td>
                   </tr>
@@ -105,7 +107,7 @@ export function ConnectionsView() {
             </table>
 
             {connections.length === 0 && (
-              <p className="mt-3 text-sm text-fg-faint">No active connections.</p>
+              <p className="mt-3 text-sm text-fg-faint">{t.connections.emptyActive}</p>
             )}
           </div>
         </CardContent>
@@ -113,34 +115,31 @@ export function ConnectionsView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>History</CardTitle>
+          <CardTitle>{t.connections.historyTitle}</CardTitle>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={refreshHistory}>
-              Refresh
+              {t.connections.refresh}
             </Button>
             <Button variant="destructive" size="sm" disabled={historyEntries.length === 0} onClick={clearHistory}>
-              Clear history
+              {t.connections.clearHistory}
             </Button>
           </div>
         </CardHeader>
 
         <CardContent className="pt-4">
-          <p className="-mt-2 mb-3 text-sm text-fg-faint">
-            A look-back at connections that have finished, not a live view — use Refresh to pull the
-            latest. Only recorded when "Record connection history" is turned on in Settings.
-          </p>
+          <p className="-mt-2 mb-3 text-sm text-fg-faint">{t.connections.historyExplainer}</p>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line text-fg-faint">
-                  <th className="py-2 pr-3 font-medium">Destination</th>
-                  <th className="py-2 pr-3 font-medium">Network</th>
-                  <th className="py-2 pr-3 font-medium">Chain</th>
-                  <th className="py-2 pr-3 font-medium">Rule</th>
-                  <th className="py-2 pr-3 font-medium">Download</th>
-                  <th className="py-2 pr-3 font-medium">Upload</th>
-                  <th className="py-2 pr-3 font-medium">Ended</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnDestination}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnNetwork}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnChain}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnRule}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnDownload}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnUpload}</th>
+                  <th className="py-2 pr-3 font-medium">{t.connections.columnEnded}</th>
                 </tr>
               </thead>
               <tbody>
@@ -159,7 +158,7 @@ export function ConnectionsView() {
             </table>
 
             {historyEntries.length === 0 && (
-              <p className="mt-3 text-sm text-fg-faint">No connection history yet.</p>
+              <p className="mt-3 text-sm text-fg-faint">{t.connections.emptyHistory}</p>
             )}
           </div>
         </CardContent>

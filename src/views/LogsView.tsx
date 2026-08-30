@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "../store";
+import { useTranslation } from "../i18n";
+import { getT } from "../i18n/current";
 import type { LogEntry, LogLevel } from "../types";
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from "../components/ui";
 import type { BadgeVariant } from "../components/ui";
@@ -24,6 +26,7 @@ function formatLine(entry: LogEntry): string {
 }
 
 export function LogsView() {
+  const { t } = useTranslation();
   const logEntries = useAppStore((s) => s.logEntries);
   const refreshLogs = useAppStore((s) => s.refreshLogs);
   const clearLogs = useAppStore((s) => s.clearLogs);
@@ -46,37 +49,34 @@ export function LogsView() {
     const text = logEntries.map(formatLine).join("\n");
     try {
       await navigator.clipboard.writeText(text);
-      useAppStore.getState().pushToast("success", "Logs copied to clipboard");
+      useAppStore.getState().pushToast("success", getT().toasts.logsCopied);
     } catch (err) {
-      useAppStore.getState().pushToast("error", `Failed to copy logs: ${String(err)}`);
+      useAppStore.getState().pushToast("error", getT().toasts.logsCopyFailed(String(err)));
     }
   };
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
-      <h1 className="font-display text-xl font-semibold text-fg">Logs</h1>
+      <h1 className="font-display text-xl font-semibold text-fg">{t.logs.title}</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>App &amp; core logs</CardTitle>
+          <CardTitle>{t.logs.cardTitle}</CardTitle>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={refreshLogs}>
-              Refresh
+              {t.logs.refresh}
             </Button>
             <Button variant="outline" size="sm" disabled={logEntries.length === 0} onClick={copyAll}>
-              Copy all
+              {t.logs.copyAll}
             </Button>
             <Button variant="destructive" size="sm" disabled={logEntries.length === 0} onClick={clearLogs}>
-              Clear
+              {t.logs.clear}
             </Button>
           </div>
         </CardHeader>
 
         <CardContent className="pt-4">
-          <p className="-mt-2 mb-3 text-sm text-fg-faint">
-            Live app and sing-box core log lines, kept in memory (most recent {logEntries.length}
-            {logEntries.length === 1 ? " line" : " lines"} shown, up to 2000).
-          </p>
+          <p className="-mt-2 mb-3 text-sm text-fg-faint">{t.logs.explainer(logEntries.length)}</p>
 
           <div
             ref={scrollRef}
@@ -96,7 +96,7 @@ export function LogsView() {
               </div>
             ))}
 
-            {logEntries.length === 0 && <p className="text-sm text-fg-faint">No log entries yet.</p>}
+            {logEntries.length === 0 && <p className="text-sm text-fg-faint">{t.logs.empty}</p>}
           </div>
         </CardContent>
       </Card>
