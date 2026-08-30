@@ -211,7 +211,13 @@ export interface Dictionary {
 
   appRouting: {
     title: string;
+    subtitle: (routed: number, total: number) => string;
     description: string;
+    search: {
+      ariaLabel: string;
+      placeholder: string;
+    };
+    noResults: string;
     presetsTitle: string;
     presetsExplainer: string;
     presetApply: string;
@@ -230,6 +236,7 @@ export interface Dictionary {
       gaming: string;
       devtools: string;
     };
+    categoryRouted: (routed: number, total: number) => string;
     presets: {
       "cn-direct": { label: string; description: string };
       "streaming-proxy": { label: string; description: string };
@@ -272,8 +279,13 @@ export interface Dictionary {
 
   ruleResources: {
     title: string;
+    subtitle: (count: number, size: string) => string;
     description: string;
     categoryLabels: { geosite: string; geoIp: string };
+    addMenu: {
+      button: string;
+      cancel: string;
+    };
     accel: {
       title: string;
       explainer: string;
@@ -300,16 +312,20 @@ export interface Dictionary {
     downloaded: {
       title: string;
       updateAll: string;
+      searchAriaLabel: string;
+      searchPlaceholder: string;
       columnName: string;
       columnCategory: string;
       columnSource: string;
       columnSize: string;
       columnDownloaded: string;
-      customSuffix: string;
+      columnActions: string;
+      customBadge: string;
       redownload: string;
       delete: string;
       confirmDelete: string;
       empty: string;
+      noResults: string;
     };
   };
 

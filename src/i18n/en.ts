@@ -233,11 +233,17 @@ export const en: Dictionary = {
 
   appRouting: {
     title: "App routing",
+    subtitle: (routed, total) => `${routed} of ${total} apps routed`,
     description:
-      'One-click routing for well-known apps and services, and region-based presets for bulk rule changes -- both are just a friendlier way to manage the same routing rules as the "Rules" page, matched against downloaded GeoSite/GeoIP rule-sets instead of hand-typed domains.',
-    presetsTitle: "Region presets",
+      'One-click routing for well-known apps and services -- a friendlier way to manage the same routing rules as the "Rules" page, matched against downloaded GeoSite/GeoIP rule-sets instead of hand-typed domains.',
+    search: {
+      ariaLabel: "Search apps",
+      placeholder: "Search apps...",
+    },
+    noResults: "No apps match your search.",
+    presetsTitle: "Reset routing",
     presetsExplainer:
-      'Applying a preset replaces its own previously-applied rules and sets the fallback ("everything else") outbound -- your manual rules and app-routing toggles below are left alone, except for "Global proxy, no rules", which clears every rule. Click a preset once to arm it, click again to confirm.',
+      'A quick way to wipe every routing rule (including the app routes below) and send all traffic through the proxy. For region presets that leave your existing rules alone, use the presets on the "Rules" page. Click once to arm, click again to confirm.',
     presetApply: "Apply",
     presetConfirm: "Confirm?",
     routeAriaLabel: (appLabel) => `Route ${appLabel}`,
@@ -254,6 +260,7 @@ export const en: Dictionary = {
       gaming: "Gaming",
       devtools: "Dev & productivity",
     },
+    categoryRouted: (routed, total) => `${routed}/${total} routed`,
     presets: {
       "cn-direct": {
         label: "China direct, rest proxy",
@@ -312,9 +319,14 @@ export const en: Dictionary = {
 
   ruleResources: {
     title: "Rule resources",
+    subtitle: (count, size) => `${count} downloaded · ${size}`,
     description:
       'GeoIP/GeoSite rule-set files (sing-box\'s .srs binary format), downloaded once and referenced by name from a routing rule with match type "Rule set" instead of typing thousands of domains by hand.',
     categoryLabels: { geosite: "GeoSite", geoIp: "GeoIP" },
+    addMenu: {
+      button: "Add",
+      cancel: "Cancel",
+    },
     accel: {
       title: "GitHub acceleration",
       explainer:
@@ -342,15 +354,19 @@ export const en: Dictionary = {
     downloaded: {
       title: "Downloaded resources",
       updateAll: "Update all",
+      searchAriaLabel: "Search downloaded resources",
+      searchPlaceholder: "Search resources...",
       columnName: "Name",
       columnCategory: "Category",
       columnSource: "Source",
       columnSize: "Size",
       columnDownloaded: "Downloaded",
-      customSuffix: " (custom)",
+      columnActions: "Actions",
+      customBadge: "Custom",
       redownload: "Re-download",
       delete: "Delete",
       confirmDelete: "Confirm?",
+      noResults: "No resources match your search.",
       empty: "No rule resources downloaded yet. Add one from the catalog above.",
     },
   },

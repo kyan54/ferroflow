@@ -228,11 +228,17 @@ export const zh: Dictionary = {
 
   appRouting: {
     title: "应用分流",
+    subtitle: (routed, total) => `已分流 ${routed} / ${total} 个应用`,
     description:
-      "为常见应用和服务提供一键分流,并通过区域预设批量调整规则 -- 两者都只是管理与「规则」页相同路由规则的更便捷方式,匹配的是已下载的 GeoSite/GeoIP 规则集,而不需要手动输入域名。",
-    presetsTitle: "区域预设",
+      "为常见应用和服务提供一键分流 -- 这只是管理与「规则」页相同路由规则的更便捷方式,匹配的是已下载的 GeoSite/GeoIP 规则集,而不需要手动输入域名。",
+    search: {
+      ariaLabel: "搜索应用",
+      placeholder: "搜索应用…",
+    },
+    noResults: "没有匹配的应用。",
+    presetsTitle: "重置路由",
     presetsExplainer:
-      "应用预设会替换其自身此前应用过的规则,并设置兜底(「其余流量」)出站方式 -- 你的手动规则和下方的应用分流开关不受影响,唯独「全局代理,无规则」会清空所有规则。点击一次以待命,再次点击确认应用。",
+      "快速清空全部路由规则(包括下方的应用分流)并将所有流量都发送到代理。若想使用不影响现有规则的区域预设,请前往「规则」页。点击一次以待命,再次点击确认应用。",
     presetApply: "应用",
     presetConfirm: "确认?",
     routeAriaLabel: (appLabel) => `${appLabel} 的分流方式`,
@@ -249,6 +255,7 @@ export const zh: Dictionary = {
       gaming: "游戏",
       devtools: "开发与效率工具",
     },
+    categoryRouted: (routed, total) => `${routed}/${total} 已分流`,
     presets: {
       "cn-direct": {
         label: "中国大陆直连,其余走代理",
@@ -304,9 +311,14 @@ export const zh: Dictionary = {
 
   ruleResources: {
     title: "规则资源",
+    subtitle: (count, size) => `已下载 ${count} 项 · ${size}`,
     description:
       "GeoIP/GeoSite 规则集文件(sing-box 的 .srs 二进制格式),下载一次后即可在路由规则中以「规则集」匹配类型按名称引用,无需手动输入成千上万个域名。",
     categoryLabels: { geosite: "GeoSite", geoIp: "GeoIP" },
+    addMenu: {
+      button: "添加",
+      cancel: "取消",
+    },
     accel: {
       title: "GitHub 加速",
       explainer:
@@ -334,16 +346,20 @@ export const zh: Dictionary = {
     downloaded: {
       title: "已下载资源",
       updateAll: "全部更新",
+      searchAriaLabel: "搜索已下载资源",
+      searchPlaceholder: "搜索资源…",
       columnName: "名称",
       columnCategory: "分类",
       columnSource: "来源",
       columnSize: "大小",
       columnDownloaded: "下载时间",
-      customSuffix: "(自定义)",
+      columnActions: "操作",
+      customBadge: "自定义",
       redownload: "重新下载",
       delete: "删除",
       confirmDelete: "确认?",
       empty: "尚未下载任何规则资源。请从上方目录中添加。",
+      noResults: "没有匹配的资源。",
     },
   },
 

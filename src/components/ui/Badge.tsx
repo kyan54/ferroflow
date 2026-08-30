@@ -14,7 +14,13 @@ export type BadgeVariant =
   | "vmess"
   | "trojan"
   | "shadowsocks"
-  | "wireguard";
+  | "wireguard"
+  // Rule-resource category tags (Rule resources downloaded-list) -- reuses
+  // two of the same badge hues as the protocol tags above; the two features
+  // never appear on screen together, so the hue reuse doesn't read as a
+  // clash.
+  | "geosite"
+  | "geoIp";
 
 const VARIANT_CLASSES: Record<BadgeVariant, string> = {
   default: "border-transparent bg-flow-weak text-flow-hi",
@@ -28,6 +34,8 @@ const VARIANT_CLASSES: Record<BadgeVariant, string> = {
   trojan: "border-transparent bg-badge-orange/15 text-badge-orange",
   shadowsocks: "border-transparent bg-badge-teal/15 text-badge-teal",
   wireguard: "border-transparent bg-badge-indigo/15 text-badge-indigo",
+  geosite: "border-transparent bg-badge-blue/15 text-badge-blue",
+  geoIp: "border-transparent bg-badge-purple/15 text-badge-purple",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
