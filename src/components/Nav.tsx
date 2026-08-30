@@ -95,18 +95,27 @@ function SettingsIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+type NavItem = { kind: "item"; id: View; label: string; icon: typeof DashboardIcon };
+type NavSection = { kind: "section"; label: string };
+type NavEntry = NavItem | NavSection;
+
 export function Nav({ active, onChange }: { active: View; onChange: (view: View) => void }) {
   const { t } = useTranslation();
 
-  const TABS: { id: View; label: string; icon: typeof DashboardIcon }[] = [
-    { id: "dashboard", label: t.nav.dashboard, icon: DashboardIcon },
-    { id: "servers", label: t.nav.servers, icon: ServersIcon },
-    { id: "rules", label: t.nav.rules, icon: RulesIcon },
-    { id: "appRouting", label: t.nav.appRouting, icon: AppRoutingIcon },
-    { id: "ruleResources", label: t.nav.ruleResources, icon: RuleResourcesIcon },
-    { id: "connections", label: t.nav.connections, icon: ConnectionsIcon },
-    { id: "logs", label: t.nav.logs, icon: LogsIcon },
-    { id: "settings", label: t.nav.settings, icon: SettingsIcon },
+  // Grouped to match FlowZ's own sidebar structure: Dashboard/Servers stand
+  // alone at the top, then a "Routing" section (Rules/App routing/Rule
+  // resources) and a "Diagnostics" section (Connections/Logs), with
+  // Settings last on its own.
+  const ENTRIES: NavEntry[] = [
+    { kind: "item", id: "dashboard", label: t.nav.dashboard, icon: DashboardIcon },
+    { kind: "item", id: "servers", label: t.nav.servers, icon: ServersIcon },
+    { kind: "section", label: t.nav.routingSection },
+    { kind: "item", id: "rules", label: t.nav.rules, icon: RulesIcon },
+    { kind: "item", id: "appRouting", label: t.nav.appRouting, icon: AppRoutingIcon },
+    { kind: "item", id: "ruleResources", label: t.nav.ruleResources, icon: RuleResourcesIcon },
+    { kind: "section", label: t.nav.diagnosticsSection },
+    { kind: "item", id: "connections", label: t.nav.connections, icon: ConnectionsIcon },
+    { kind: "item", id: "logs", label: t.nav.logs, icon: LogsIcon },
   ];
 
   return (
@@ -122,14 +131,26 @@ export function Nav({ active, onChange }: { active: View; onChange: (view: View)
         </span>
       </div>
 
-      <ul className="flex flex-1 flex-col gap-0.5 px-2">
-        {TABS.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = active === tab.id;
+      <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
+        {ENTRIES.map((entry, i) => {
+          if (entry.kind === "section") {
+            return (
+              <li
+                key={`section-${entry.label}`}
+                className={`px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint ${
+                  i === 0 ? "pt-0" : "pt-3"
+                }`}
+              >
+                {entry.label}
+              </li>
+            );
+          }
+          const Icon = entry.icon;
+          const isActive = active === entry.id;
           return (
-            <li key={tab.id}>
+            <li key={entry.id}>
               <button
-                onClick={() => onChange(tab.id)}
+                onClick={() => onChange(entry.id)}
                 aria-current={isActive ? "page" : undefined}
                 className={`relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   isActive
@@ -141,12 +162,30 @@ export function Nav({ active, onChange }: { active: View; onChange: (view: View)
                   <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-flow" />
                 )}
                 <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={isActive ? 2.1 : 1.8} />
-                {tab.label}
+                {entry.label}
               </button>
             </li>
           );
         })}
       </ul>
+
+      <div className="border-t border-line px-2 py-2">
+        <button
+          onClick={() => onChange("settings")}
+          aria-current={active === "settings" ? "page" : undefined}
+          className={`relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            active === "settings"
+              ? "bg-flow-weak text-flow-hi"
+              : "text-fg-dim hover:bg-surface-2 hover:text-fg"
+          }`}
+        >
+          {active === "settings" && (
+            <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-flow" />
+          )}
+          <SettingsIcon className="h-[17px] w-[17px] shrink-0" strokeWidth={active === "settings" ? 2.1 : 1.8} />
+          {t.nav.settings}
+        </button>
+      </div>
     </nav>
   );
 }

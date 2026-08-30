@@ -53,11 +53,18 @@
     --radius: 0.5rem;
   }
 
-  /* ferroflow follows the OS color-scheme preference (no in-app toggle),
-     mirroring its previous darkMode:"media" setup -- so this is a media
-     query, not a `.dark` class, unlike the reference app's own toggle. */
+  /* Three theme states, matching Settings' Theme control
+     (System/Light/Dark -- see src/i18n and SettingsView.tsx):
+     - "system" (default, no `data-theme` attribute on <html>): follow the
+       OS via the media query below.
+     - "light": force light regardless of OS -- the media query's
+       `:not([data-theme="light"])` guard stops it from applying.
+     - "dark": force dark regardless of OS -- the explicit
+       `[data-theme="dark"]` block below applies unconditionally.
+     Both dark blocks carry the exact same values so the two paths (OS
+     preference vs. explicit choice) never disagree. */
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       /* Blue-slate base + brighter flow teal for dark mode. */
       --bg: 216 30% 8%;
       --surface: 215 24% 11.5%;
@@ -93,6 +100,42 @@
       --input: var(--line);
       --ring: 184 64% 54%;
     }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: 216 30% 8%;
+    --surface: 215 24% 11.5%;
+    --surface-2: 215 19% 15%;
+    --surface-3: 215 16% 20%;
+    --line: 215 15% 21%;
+    --hair: 215 14% 25%;
+    --fg: 210 20% 93%;
+    --fg-dim: 214 13% 64%;
+    --fg-faint: 214 11% 46%;
+
+    --flow: 184 50% 50%;
+    --flow-hi: 184 64% 60%;
+    --flow-weak: 200 34% 18%;
+
+    --ok: 158 54% 50%;
+    --ok-weak: 158 34% 15%;
+    --warn: 36 80% 59%;
+    --warn-weak: 34 40% 15%;
+    --err: 358 70% 66%;
+    --err-weak: 358 38% 18%;
+
+    --dn: 196 74% 58%;
+    --up: 256 56% 71%;
+
+    --badge-blue: 213.1 93.9% 67.8%;
+    --badge-purple: 270 95.2% 75.3%;
+    --badge-orange: 27 96% 61%;
+    --badge-teal: 172 66% 50%;
+    --badge-indigo: 234.5 89.5% 73.9%;
+
+    --border: var(--line);
+    --input: var(--line);
+    --ring: 184 64% 54%;
   }
 }
 

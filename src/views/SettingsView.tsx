@@ -6,6 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Toggle, SegmentedCont
 export function SettingsView() {
   const { t, language } = useTranslation();
   const config = useAppStore((s) => s.config);
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
   const platformInfo = useAppStore((s) => s.platformInfo);
   const refreshPlatformInfo = useAppStore((s) => s.refreshPlatformInfo);
   const saveConfig = useAppStore((s) => s.saveConfig);
@@ -62,6 +64,24 @@ export function SettingsView() {
             options={[
               { value: "en", label: t.settings.language.english },
               { value: "zh", label: t.settings.language.chinese },
+            ]}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t.settings.theme.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <SegmentedControl
+            aria-label={t.settings.theme.title}
+            value={theme}
+            onChange={(value) => setTheme(value)}
+            options={[
+              { value: "system", label: t.settings.theme.system },
+              { value: "light", label: t.settings.theme.light },
+              { value: "dark", label: t.settings.theme.dark },
             ]}
           />
         </CardContent>

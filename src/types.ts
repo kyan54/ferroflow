@@ -136,6 +136,8 @@ export interface UserConfig {
   autoConnect: boolean;
   minimizeToTray: boolean;
   language?: string | null;
+  /** "system" (default, absent/null), "light", or "dark" -- see src/index.css's `data-theme` handling. */
+  theme?: string | null;
   /** Opt-in, off by default -- see the "Record connection history" toggle in SettingsView. */
   connectionHistoryEnabled: boolean;
 

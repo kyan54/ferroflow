@@ -26,9 +26,11 @@ export interface Dictionary {
     appName: string;
     dashboard: string;
     servers: string;
+    routingSection: string;
     rules: string;
     appRouting: string;
     ruleResources: string;
+    diagnosticsSection: string;
     connections: string;
     logs: string;
     settings: string;
@@ -283,6 +285,12 @@ export interface Dictionary {
       title: string;
       english: string;
       chinese: string;
+    };
+    theme: {
+      title: string;
+      system: string;
+      light: string;
+      dark: string;
     };
     behavior: {
       title: string;

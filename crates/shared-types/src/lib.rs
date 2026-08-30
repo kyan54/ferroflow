@@ -275,6 +275,16 @@ pub struct UserConfig {
     pub auto_connect: bool,
     pub minimize_to_tray: bool,
     pub language: Option<String>,
+    /// `"system"` (default, `None`/absent), `"light"`, or `"dark"` --
+    /// mirrors `language`'s loose `Option<String>` typing rather than an
+    /// enum, same reasoning: the frontend owns the fixed set of valid
+    /// values (src/i18n's `Language` union has its own direct analogue in
+    /// a `Theme` union), and a plain string round-trips forward-compatibly
+    /// if that set ever grows without needing a backend change. `None`
+    /// means "follow the OS", not "light" -- see src/index.css's
+    /// `data-theme` handling.
+    #[serde(default)]
+    pub theme: Option<String>,
     /// Opt-in, off by default: whether `core_manager::history::HistoryRecorder`
     /// should be spawned alongside the next `CoreManager::start()` call to log
     /// finished connections to a local file (see `docs/ipc-contract.md`'s
@@ -348,6 +358,7 @@ impl Default for UserConfig {
             auto_connect: false,
             minimize_to_tray: true,
             language: None,
+            theme: None,
             connection_history_enabled: false,
             rule_resources: Vec::new(),
             github_accel_prefix: None,

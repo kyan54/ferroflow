@@ -388,6 +388,7 @@ mod tests {
             auto_connect: true,
             minimize_to_tray: true,
             language: Some("en".to_string()),
+            theme: None,
             connection_history_enabled: false,
             rule_resources: Vec::new(),
             github_accel_prefix: None,

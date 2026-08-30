@@ -5,6 +5,8 @@ import { appErrorMessage } from "./types";
 import { newId } from "./lib/utils";
 import { getT, normalizeLanguage, setCurrentLanguage } from "./i18n/current";
 import type { Language } from "./i18n/dictionary";
+import { applyTheme, normalizeTheme } from "./lib/theme";
+import type { Theme } from "./lib/theme";
 import {
   appRoutingRuleId,
   buildPresetRules,
@@ -47,6 +49,7 @@ let toastSeq = 0;
 interface AppStore {
   config: UserConfig | null;
   language: Language;
+  theme: Theme;
   proxyStatus: ProxyStatus | null;
   systemProxyStatus: SystemProxyStatus | null;
   platformInfo: PlatformInfo | null;
@@ -85,6 +88,10 @@ interface AppStore {
    * round-trip wait) and persists it via `saveConfig` -- same pattern as
    * every other settings toggle in this store. */
   setLanguage: (language: Language) => Promise<void>;
+  /** Same pattern as `setLanguage`: updates `theme` state (and the DOM
+   * `data-theme` attribute via `applyTheme`) immediately, then persists via
+   * `saveConfig`. */
+  setTheme: (theme: Theme) => Promise<void>;
   addServer: (server: ServerConfig) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
   duplicateServer: (id: string) => Promise<void>;
@@ -139,6 +146,7 @@ interface AppStore {
 export const useAppStore = create<AppStore>((set, get) => ({
   config: null,
   language: "en",
+  theme: "system",
   proxyStatus: null,
   systemProxyStatus: null,
   platformInfo: null,
@@ -176,7 +184,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const config = await ipc.configGet();
       const language = normalizeLanguage(config.language);
       setCurrentLanguage(language);
-      set({ config, language });
+      const theme = normalizeTheme(config.theme);
+      applyTheme(theme);
+      set({ config, language, theme });
     } catch (err) {
       get().pushToast("error", getT().toasts.loadConfigFailed(appErrorMessage(err)));
     } finally {
@@ -281,6 +291,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const current = get().config;
     if (!current) return;
     await get().saveConfig({ ...current, language });
+  },
+
+  setTheme: async (theme) => {
+    set({ theme });
+    applyTheme(theme);
+    const current = get().config;
+    if (!current) return;
+    await get().saveConfig({ ...current, theme });
   },
 
   addServer: async (server) => {
