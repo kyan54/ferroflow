@@ -160,3 +160,98 @@
       sans-serif;
   }
 }
+
+/* Small, hand-rolled motion utilities -- Tailwind's transition-* utilities
+   cover hover/focus states; these keyframes cover mount-time entrances
+   (dropdown menus, inline forms, toasts, list-mode swaps) that plain CSS
+   transitions can't express since the element doesn't exist beforehand.
+   Kept short (150-200ms) to stay snappy for a desktop app -- see the design
+   notes in RulesView/ServersView/ToastStack for where each is used. */
+@layer utilities {
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes dropdown-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(20px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  @keyframes toast-out {
+    from {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateX(20px) scale(0.97);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 150ms ease-out both;
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 180ms ease-out both;
+  }
+
+  .animate-dropdown-in {
+    animation: dropdown-in 150ms ease-out both;
+    transform-origin: top right;
+  }
+
+  .animate-toast-in {
+    animation: toast-in 200ms ease-out both;
+  }
+
+  .animate-toast-out {
+    animation: toast-out 180ms ease-in both;
+  }
+}
+
+/* Anything beyond a simple hover/focus color transition is gated behind
+   prefers-reduced-motion so it collapses to an instant, non-animated state
+   change for users who've asked for it. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-dropdown-in,
+  .animate-toast-in,
+  .animate-toast-out {
+    animation: none !important;
+  }
+}

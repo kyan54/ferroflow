@@ -4,14 +4,19 @@ import { cn } from "../../lib/utils";
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-xl border border-line bg-surface shadow-sm", className)}
+      className={cn("rounded-xl border border-line bg-surface shadow-sm transition-colors", className)}
       {...props}
     />
   );
 }
 
 export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center justify-between gap-3 p-5 pb-0", className)} {...props} />;
+  // flex-wrap so a title + trailing controls (search box, buttons) reflow
+  // onto a second line instead of overflowing the card at narrow widths or
+  // high zoom, rather than forcing the whole page into horizontal scroll.
+  return (
+    <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-2 p-5 pb-0", className)} {...props} />
+  );
 }
 
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {

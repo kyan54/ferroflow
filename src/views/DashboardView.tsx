@@ -240,7 +240,7 @@ export function DashboardView() {
                     disabled={!canStop}
                     title={t.dashboard.exitNode.stop}
                     aria-label={t.dashboard.exitNode.stop}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-err text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-err text-white transition-all hover:brightness-95 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {proxyBusy ? <Spinner className="h-4 w-4" /> : <StopIcon className="h-4 w-4" />}
                   </button>
@@ -251,7 +251,7 @@ export function DashboardView() {
                     disabled={!canStart}
                     title={!selectedServerId ? t.dashboard.exitNode.selectServerFirst : t.dashboard.exitNode.start}
                     aria-label={t.dashboard.exitNode.start}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-flow text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-flow text-white transition-all hover:brightness-95 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {proxyBusy ? <Spinner className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
                   </button>
@@ -268,7 +268,7 @@ export function DashboardView() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>{t.dashboard.takeoverMode.title}</CardTitle>

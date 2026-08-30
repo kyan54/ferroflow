@@ -42,7 +42,15 @@ export interface Toast {
   id: number;
   kind: "info" | "error" | "success";
   message: string;
+  /** Set by `dismissToast` just before removal so `ToastStack` can play its
+   * exit animation instead of the DOM node vanishing instantly -- the toast
+   * stays in `toasts` for one more animation frame's worth of time, then a
+   * second pass actually drops it from the array. */
+  leaving?: boolean;
 }
+
+/** Matches `.animate-toast-out`'s duration in index.css. */
+const TOAST_EXIT_MS = 180;
 
 let toastSeq = 0;
 
@@ -215,7 +223,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       setTimeout(() => get().dismissToast(id), 4000);
     }
   },
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) => {
+    set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t)) }));
+    setTimeout(() => {
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+    }, TOAST_EXIT_MS);
+  },
 
   refreshConfig: async () => {
     set({ configLoading: true });

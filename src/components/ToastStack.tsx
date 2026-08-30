@@ -1,5 +1,6 @@
 import { useAppStore } from "../store";
 import { useTranslation } from "../i18n";
+import { cn } from "../lib/utils";
 
 const KIND_STYLES: Record<string, string> = {
   info: "bg-surface-3 text-fg border border-line",
@@ -19,14 +20,16 @@ export function ToastStack() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`flex max-h-[70vh] items-start justify-between gap-3 overflow-y-auto rounded-lg px-4 py-3 text-sm shadow-lg ${
-            KIND_STYLES[toast.kind]
-          }`}
+          className={cn(
+            "flex max-h-[70vh] items-start justify-between gap-3 overflow-y-auto rounded-lg px-4 py-3 text-sm shadow-lg",
+            KIND_STYLES[toast.kind],
+            toast.leaving ? "animate-toast-out" : "animate-toast-in",
+          )}
         >
           <span className="min-w-0 break-words">{toast.message}</span>
           <button
             onClick={() => dismissToast(toast.id)}
-            className="sticky top-0 shrink-0 opacity-70 hover:opacity-100"
+            className="sticky top-0 shrink-0 opacity-70 transition-opacity hover:opacity-100"
             aria-label={t.common.dismiss}
           >
             ✕

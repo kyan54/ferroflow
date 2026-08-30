@@ -158,9 +158,12 @@ export function Nav({ active, onChange }: { active: View; onChange: (view: View)
                     : "text-fg-dim hover:bg-surface-2 hover:text-fg"
                 }`}
               >
-                {isActive && (
-                  <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-flow" />
-                )}
+                <span
+                  className={`absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-flow transition-all duration-200 ${
+                    isActive ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0"
+                  }`}
+                  aria-hidden="true"
+                />
                 <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={isActive ? 2.1 : 1.8} />
                 {entry.label}
               </button>
@@ -179,9 +182,12 @@ export function Nav({ active, onChange }: { active: View; onChange: (view: View)
               : "text-fg-dim hover:bg-surface-2 hover:text-fg"
           }`}
         >
-          {active === "settings" && (
-            <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-flow" />
-          )}
+          <span
+            className={`absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-flow transition-all duration-200 ${
+              active === "settings" ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0"
+            }`}
+            aria-hidden="true"
+          />
           <SettingsIcon className="h-[17px] w-[17px] shrink-0" strokeWidth={active === "settings" ? 2.1 : 1.8} />
           {t.nav.settings}
         </button>

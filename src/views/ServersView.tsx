@@ -292,7 +292,12 @@ function ServerCard({
   const { t } = useTranslation();
 
   return (
-    <Card className={cn("flex flex-col gap-3 p-4", isSelected && "border-flow ring-1 ring-flow")}>
+    <Card
+      className={cn(
+        "flex flex-col gap-3 p-4 transition-shadow hover:shadow-md",
+        isSelected && "border-flow ring-1 ring-flow",
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
@@ -510,7 +515,7 @@ export function ServersView() {
               {showAddMenu && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
+                  className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg animate-dropdown-in"
                 >
                   <button
                     type="button"
@@ -553,9 +558,15 @@ export function ServersView() {
         )}
       </div>
 
-      {showForm && <ServerForm onDone={() => setShowForm(false)} />}
+      {showForm && (
+        <div className="animate-fade-in-up">
+          <ServerForm onDone={() => setShowForm(false)} />
+        </div>
+      )}
       {showImportForm && (
-        <SubscriptionImportForm initialMode={importInitialMode} onDone={() => setShowImportForm(false)} />
+        <div className="animate-fade-in-up">
+          <SubscriptionImportForm initialMode={importInitialMode} onDone={() => setShowImportForm(false)} />
+        </div>
       )}
 
       {!showingForm && allServers.length > 0 && (

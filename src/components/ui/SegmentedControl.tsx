@@ -34,7 +34,13 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={aria["aria-label"]}
       className={cn(
-        "inline-flex w-full gap-[3px] rounded-lg border border-line bg-surface-2 p-[3px]",
+        // overflow-x-auto is a last-resort safety net: options already
+        // shrink evenly (flex-1) down to their own text's min-content
+        // before this ever engages, so it only kicks in once a row of
+        // options genuinely can't fit at all -- e.g. many region presets in
+        // a narrow card at high zoom -- and it scrolls just this control
+        // instead of the whole page.
+        "inline-flex w-full gap-[3px] overflow-x-auto rounded-lg border border-line bg-surface-2 p-[3px]",
         className,
       )}
     >
@@ -50,7 +56,7 @@ export function SegmentedControl<T extends string>({
             disabled={disabled || opt.disabled}
             onClick={() => !active && onChange(opt.value)}
             className={cn(
-              "flex-1 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-semibold text-fg-dim transition-colors",
+              "flex-1 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-semibold text-fg-dim transition-all",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "disabled:pointer-events-none disabled:opacity-50",
               active ? "bg-surface text-flow-hi shadow-sm" : "hover:text-fg",

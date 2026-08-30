@@ -3,7 +3,7 @@ import type { InputHTMLAttributes, TextareaHTMLAttributes, SelectHTMLAttributes 
 import { cn } from "../../lib/utils";
 
 const FIELD_CLASSES =
-  "w-full rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint " +
+  "w-full rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint transition-colors " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-flow " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 

@@ -204,7 +204,7 @@ export function RuleResourcesView() {
             {showAddMenu && (
               <div
                 role="menu"
-                className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
+                className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg animate-dropdown-in"
               >
                 <button
                   type="button"
@@ -231,7 +231,7 @@ export function RuleResourcesView() {
       <p className="text-sm text-fg-faint">{t.ruleResources.description}</p>
 
       {addMode === "catalog" && (
-        <Card>
+        <Card className="animate-fade-in-up">
           <form onSubmit={handleDownloadFromCatalog}>
             <CardHeader>
               <CardTitle>{t.ruleResources.catalog.title}</CardTitle>
@@ -264,13 +264,13 @@ export function RuleResourcesView() {
       )}
 
       {addMode === "custom" && (
-        <Card>
+        <Card className="animate-fade-in-up">
           <form onSubmit={handleDownloadCustom}>
             <CardHeader>
               <CardTitle>{t.ruleResources.custom.title}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 pt-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
                   {t.ruleResources.custom.name}
                   <Input
@@ -395,8 +395,12 @@ export function RuleResourcesView() {
           ) : visibleResources.length === 0 ? (
             <p className="text-sm text-fg-faint">{t.ruleResources.downloaded.noResults}</p>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-sm">
+            <div className="-mx-5 overflow-x-auto animate-fade-in">
+              {/* No fixed min-width -- see RulesView's rule-list table for
+                  the same reasoning: column width hints plus the source-url
+                  column's truncation let the table shrink with the card
+                  instead of forcing a horizontal scrollbar at normal sizes. */}
+              <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-faint">
                     <th className="py-2 pl-5 pr-2 font-medium">{t.ruleResources.downloaded.columnName}</th>

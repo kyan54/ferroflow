@@ -171,9 +171,17 @@ export function AppRoutingView() {
               </CardHeader>
               <CardContent className="flex flex-col divide-y divide-line pt-4">
                 {apps.map((app) => (
-                  <div key={app.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <p className="text-sm font-medium text-fg">{app.label}</p>
-                    <div className="w-[300px] shrink-0">
+                  <div
+                    key={app.id}
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5 first:pt-0 last:pb-0"
+                  >
+                    <p className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{app.label}</p>
+                    {/* Basis 300px like the original fixed design, but with
+                        flex-shrink left at its default (1) instead of the
+                        old shrink-0 -- it shrinks with the row instead of
+                        forcing horizontal overflow at narrow widths or high
+                        zoom (row also wraps as a last resort). */}
+                    <div className="max-w-full basis-[300px] shrink">
                       <SegmentedControl
                         options={ROUTE_OPTIONS}
                         value={currentValue(app.id)}

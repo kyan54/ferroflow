@@ -317,10 +317,12 @@ export function RulesView() {
       )}
 
       {activeForm !== null && (
-        <RuleForm
-          initialRule={activeForm === "new" ? undefined : activeForm}
-          onDone={() => setActiveForm(null)}
-        />
+        <div className="animate-fade-in-up">
+          <RuleForm
+            initialRule={activeForm === "new" ? undefined : activeForm}
+            onDone={() => setActiveForm(null)}
+          />
+        </div>
       )}
 
       <Card>
@@ -399,7 +401,7 @@ export function RulesView() {
             <CardDescription>{t.rules.description}</CardDescription>
 
             {isOrderEditing ? (
-              <div className="-mx-5 flex flex-col">
+              <div className="-mx-5 flex flex-col animate-fade-in">
                 {visibleRules.map((rule, index) => (
                   <div
                     key={rule.id}
@@ -467,8 +469,14 @@ export function RulesView() {
                 </div>
               </div>
             ) : (
-              <div className="-mx-5 overflow-x-auto">
-                <table className="w-full min-w-[560px] border-collapse text-sm">
+              <div className="-mx-5 overflow-x-auto animate-fade-in">
+                {/* No fixed min-width on the table itself -- the column
+                    width hints below (w-12/w-28/w-20) plus the rule column's
+                    own truncation are enough for the browser's table layout
+                    to shrink gracefully at narrow widths or high zoom.
+                    `overflow-x-auto` on the wrapper above stays only as a
+                    last-resort safety net, not the primary fit strategy. */}
+                <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-faint">
                       <th className="w-12 py-2 pl-5 pr-2 font-medium">{t.rules.ruleListCard.columnEnabled}</th>
@@ -483,7 +491,10 @@ export function RulesView() {
                     {visibleRules.map((rule) => (
                       <tr
                         key={rule.id}
-                        className={cn("border-b border-line last:border-0", !rule.enabled && "opacity-60")}
+                        className={cn(
+                          "border-b border-line last:border-0 transition-opacity",
+                          !rule.enabled && "opacity-60",
+                        )}
                       >
                         <td className="py-3 pl-5 pr-2">
                           <Toggle
