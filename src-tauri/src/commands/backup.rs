@@ -346,7 +346,7 @@ pub async fn diagnostic_export(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared_types::{Protocol, ProxyMode, ProxyModeType, RoutingRule, RuleMatchType, RuleOutbound, ServerConfig, TlsConfig};
+    use shared_types::{Protocol, ProxyMode, ProxyModeType, RoutingRule, RuleMatchType, RuleOutbound, ServerConfig, ServerSource, TlsConfig};
 
     fn sample_config() -> UserConfig {
         UserConfig {
@@ -371,6 +371,7 @@ mod tests {
                 wireguard_peer_public_key: None,
                 wireguard_pre_shared_key: None,
                 wireguard_local_address: None,
+                source: ServerSource::Manual,
             }],
             rules: vec![RoutingRule {
                 id: "rule-1".to_string(),

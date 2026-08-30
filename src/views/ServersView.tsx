@@ -59,6 +59,25 @@ function DuplicateIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function CopyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...icon(props)}>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </svg>
+  );
+}
+
+function CloneToSelfBuiltIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...icon(props)}>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M4 14V4a1 1 0 0 1 1-1h10" />
+      <path d="M13 12v4M11 14h4" />
+    </svg>
+  );
+}
+
 function TrashIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...icon(props)}>
@@ -229,6 +248,13 @@ function latencyColorClass(ms: number): string {
  * docs/ipc-contract.md's "Subscription import" section -- so this
  * deliberately doesn't fabricate a "tcp ·" prefix the reference screenshot
  * shows. */
+/** WireGuard has no share-link format at all (see `crates/subscription`'s
+ * module doc and `subscription::generate_share_url`) -- hide the "Copy
+ * share link" button rather than let it fail on click. */
+function hasShareLink(protocol: Protocol): boolean {
+  return protocol !== "wireguard";
+}
+
 function securityDetail(server: ServerConfig, t: Dictionary): string {
   if (server.protocol === "wireguard") return "WireGuard";
   if (!server.tls?.enabled) return t.servers.card.noTls;
@@ -245,6 +271,8 @@ function ServerCard({
   pendingDelete,
   onTest,
   onDuplicate,
+  onCopyShareUrl,
+  onCloneToSelfBuilt,
   onDelete,
   onDeleteBlur,
 }: {
@@ -256,6 +284,8 @@ function ServerCard({
   pendingDelete: boolean;
   onTest: () => void;
   onDuplicate: () => void;
+  onCopyShareUrl: () => void;
+  onCloneToSelfBuilt: () => void;
   onDelete: () => void;
   onDeleteBlur: () => void;
 }) {
@@ -315,6 +345,28 @@ function ServerCard({
         >
           <DuplicateIcon className="h-4 w-4" />
         </Button>
+        {hasShareLink(server.protocol) && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title={t.servers.copyShareUrl}
+            aria-label={t.servers.copyShareUrl}
+            onClick={onCopyShareUrl}
+          >
+            <CopyIcon className="h-4 w-4" />
+          </Button>
+        )}
+        {server.source === "subscription" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title={t.servers.cloneToSelfBuilt}
+            aria-label={t.servers.cloneToSelfBuilt}
+            onClick={onCloneToSelfBuilt}
+          >
+            <CloneToSelfBuiltIcon className="h-4 w-4" />
+          </Button>
+        )}
         <Button
           variant={pendingDelete ? "destructive" : "ghost"}
           size="icon"
@@ -339,6 +391,8 @@ export function ServersView() {
   const proxyStatus = useAppStore((s) => s.proxyStatus);
   const deleteServer = useAppStore((s) => s.deleteServer);
   const duplicateServer = useAppStore((s) => s.duplicateServer);
+  const cloneToSelfBuilt = useAppStore((s) => s.cloneToSelfBuilt);
+  const copyShareUrl = useAppStore((s) => s.copyShareUrl);
   const registerWarp = useAppStore((s) => s.registerWarp);
   const warpBusy = useAppStore((s) => s.warpBusy);
   const latencyResults = useAppStore((s) => s.latencyResults);
@@ -563,6 +617,8 @@ export function ServersView() {
                 pendingDelete={pendingDeleteId === server.id}
                 onTest={() => testServerLatency(server.id)}
                 onDuplicate={() => duplicateServer(server.id)}
+                onCopyShareUrl={() => copyShareUrl(server.id)}
+                onCloneToSelfBuilt={() => cloneToSelfBuilt(server.id)}
                 onDelete={() => handleDelete(server.id)}
                 onDeleteBlur={() => setPendingDeleteId(null)}
               />

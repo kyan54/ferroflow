@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use serde::Deserialize;
-use shared_types::{Protocol, ServerConfig, TlsConfig};
+use shared_types::{Protocol, ServerConfig, ServerSource, TlsConfig};
 
 /// Substrings that indicate a (decoded) subscription body contains
 /// recognizable share-links, used by `decode_subscription_body` to decide
@@ -151,6 +151,7 @@ fn parse_vless(rest: &str) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -201,6 +202,7 @@ fn parse_trojan(rest: &str) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -251,6 +253,7 @@ fn parse_shadowsocks(rest: &str) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -346,6 +349,7 @@ fn parse_vmess(rest: &str) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -365,6 +369,144 @@ pub fn parse_uri(uri: &str) -> Option<ServerConfig> {
         parse_vmess(rest)
     } else {
         None
+    }
+}
+
+/// `vless://<uuid>@<host>:<port>?<query>#<name>` -- the exact inverse of
+/// `parse_vless`. `security` is always emitted explicitly (`"none"` when
+/// `tls` is absent) rather than omitted, so the link is unambiguous on
+/// re-import even though `parse_vless` treats an absent `security` the same
+/// as `security=none`.
+fn generate_vless(server: &ServerConfig) -> Option<String> {
+    let uuid = server.uuid.as_deref().filter(|s| !s.is_empty())?;
+    let mut url = url::Url::parse(&format!("vless://placeholder@{}:{}", server.address, server.port)).ok()?;
+    url.set_username(uuid).ok()?;
+
+    {
+        let mut qp = url.query_pairs_mut();
+        if let Some(flow) = server.flow.as_deref().filter(|s| !s.is_empty()) {
+            qp.append_pair("flow", flow);
+        }
+        match server.tls.as_ref().filter(|t| t.enabled) {
+            None => {
+                qp.append_pair("security", "none");
+            }
+            Some(tls) => {
+                let is_reality = tls.reality_public_key.is_some() || tls.reality_short_id.is_some();
+                qp.append_pair("security", if is_reality { "reality" } else { "tls" });
+                if let Some(sni) = tls.server_name.as_deref().filter(|s| !s.is_empty()) {
+                    qp.append_pair("sni", sni);
+                }
+                if let Some(pbk) = tls.reality_public_key.as_deref().filter(|s| !s.is_empty()) {
+                    qp.append_pair("pbk", pbk);
+                }
+                if let Some(sid) = tls.reality_short_id.as_deref().filter(|s| !s.is_empty()) {
+                    qp.append_pair("sid", sid);
+                }
+                if tls.insecure {
+                    qp.append_pair("allowInsecure", "1");
+                }
+            }
+        }
+    }
+
+    url.set_fragment(Some(&server.name));
+    Some(url.to_string())
+}
+
+/// `trojan://<password>@<host>:<port>?<query>#<name>` -- the exact inverse
+/// of `parse_trojan`. No `security` query param (trojan is unconditionally
+/// TLS, matching `parse_trojan`'s own doc comment).
+fn generate_trojan(server: &ServerConfig) -> Option<String> {
+    let password = server.password.as_deref().filter(|s| !s.is_empty())?;
+    let mut url = url::Url::parse(&format!("trojan://placeholder@{}:{}", server.address, server.port)).ok()?;
+    url.set_username(password).ok()?;
+
+    if let Some(tls) = server.tls.as_ref().filter(|t| t.enabled) {
+        let mut qp = url.query_pairs_mut();
+        if let Some(sni) = tls.server_name.as_deref().filter(|s| !s.is_empty()) {
+            qp.append_pair("sni", sni);
+        }
+        if tls.insecure {
+            qp.append_pair("allowInsecure", "1");
+        }
+    }
+    // `query_pairs_mut()` sets the query to `Some("")` the moment it's
+    // called, even if nothing ends up appended (e.g. `tls.enabled` but no
+    // `sni` and `insecure: false`) -- left alone, that produces a stray
+    // bare `?` right before the fragment (`...:443?#Name`). Confirmed via
+    // live testing (a CDP-driven click of the real "Copy share link"
+    // button), not just unit tests, since every unit test's trojan fixture
+    // happened to set at least one of `sni`/`insecure`.
+    if url.query() == Some("") {
+        url.set_query(None);
+    }
+
+    url.set_fragment(Some(&server.name));
+    Some(url.to_string())
+}
+
+/// `ss://<base64(method:password)>@<host>:<port>#<name>` (SIP002) -- the
+/// exact inverse of `parse_shadowsocks`'s SIP002 branch. No TLS (shadowsocks
+/// doesn't wrap in TLS).
+fn generate_shadowsocks(server: &ServerConfig) -> Option<String> {
+    let method = server.encryption.as_deref().filter(|s| !s.is_empty())?;
+    let password = server.password.as_deref().filter(|s| !s.is_empty())?;
+    let userinfo = STANDARD.encode(format!("{method}:{password}"));
+
+    let mut url = url::Url::parse(&format!("ss://placeholder@{}:{}", server.address, server.port)).ok()?;
+    url.set_username(&userinfo).ok()?;
+    url.set_fragment(Some(&server.name));
+    Some(url.to_string())
+}
+
+/// `vmess://<base64(json)>` -- the exact inverse of `parse_vmess`, emitting
+/// the same de-facto "vmess JSON" shape `VmessJson` reads. `aid` is always
+/// `"0"` (matching `core-manager`'s outbound builder, which always emits
+/// `alter_id: 0` regardless of what's stored -- see `VmessJson::aid`'s doc
+/// comment); `net`/`type`/`host`/`path` are left at inert defaults since
+/// nothing on `ServerConfig` carries them (see this module's header doc).
+fn generate_vmess(server: &ServerConfig) -> Option<String> {
+    let uuid = server.uuid.as_deref().filter(|s| !s.is_empty())?;
+    if server.address.is_empty() {
+        return None;
+    }
+    let encryption = server.encryption.as_deref().filter(|s| !s.is_empty()).unwrap_or("auto");
+    let tls = server.tls.as_ref().filter(|t| t.enabled);
+
+    let json = serde_json::json!({
+        "v": "2",
+        "ps": server.name,
+        "add": server.address,
+        "port": server.port.to_string(),
+        "id": uuid,
+        "aid": "0",
+        "scy": encryption,
+        "net": "tcp",
+        "type": "none",
+        "host": "",
+        "path": "",
+        "tls": if tls.is_some() { "tls" } else { "" },
+        "sni": tls.and_then(|t| t.server_name.clone()).unwrap_or_default(),
+    });
+
+    Some(format!("vmess://{}", STANDARD.encode(json.to_string())))
+}
+
+/// Builds the share-link for `server` -- the exact inverse of `parse_uri`
+/// above. Returns `None` for `Protocol::Wireguard` (no share-link format
+/// exists for it -- see this module's header doc and
+/// `shared_types::ServerConfig`'s own WireGuard notes) or if a
+/// protocol-required field is unexpectedly empty (shouldn't happen for a
+/// server that came from this app's own persisted config, but defensive
+/// rather than emitting a garbage link).
+pub fn generate_share_url(server: &ServerConfig) -> Option<String> {
+    match server.protocol {
+        Protocol::Vless => generate_vless(server),
+        Protocol::Trojan => generate_trojan(server),
+        Protocol::Shadowsocks => generate_shadowsocks(server),
+        Protocol::Vmess => generate_vmess(server),
+        Protocol::Wireguard => None,
     }
 }
 
@@ -707,5 +849,146 @@ mod tests {
         let (servers, _) = parse_subscription_body(body);
         let ids: std::collections::HashSet<_> = servers.iter().map(|s| s.id.clone()).collect();
         assert_eq!(ids.len(), servers.len());
+    }
+
+    // ---- generate_share_url (inverse of parse_uri) ----------------------
+
+    #[test]
+    fn generate_vless_reality_round_trips() {
+        let original = parse_uri(
+            "vless://b831381d-6324-4d53-ad4f-8cda48b30811@server.example.com:443?\
+             flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com\
+             &pbk=zGJ8bLKEwSVsWtqdCFHYFsWkYUAqXLXHo9EorGiPKk8&sid=6ba85179e30d4fc2\
+             #My%20Reality%20Server",
+        )
+        .expect("should parse");
+
+        let link = generate_share_url(&original).expect("vless should generate a link");
+        assert!(link.starts_with("vless://"));
+
+        let round_tripped = parse_uri(&link).expect("generated link should re-parse");
+        assert_eq!(round_tripped.protocol, original.protocol);
+        assert_eq!(round_tripped.address, original.address);
+        assert_eq!(round_tripped.port, original.port);
+        assert_eq!(round_tripped.uuid, original.uuid);
+        assert_eq!(round_tripped.flow, original.flow);
+        assert_eq!(round_tripped.name, original.name);
+        let tls = round_tripped.tls.expect("tls should survive round trip");
+        let orig_tls = original.tls.expect("original has tls");
+        assert_eq!(tls.server_name, orig_tls.server_name);
+        assert_eq!(tls.reality_public_key, orig_tls.reality_public_key);
+        assert_eq!(tls.reality_short_id, orig_tls.reality_short_id);
+    }
+
+    #[test]
+    fn generate_vless_without_tls_round_trips_to_no_tls() {
+        let original = parse_uri("vless://11111111-2222-3333-4444-555555555555@plain.example.com:80?security=none#Plain").unwrap();
+        assert!(original.tls.is_none());
+        let link = generate_share_url(&original).unwrap();
+        let round_tripped = parse_uri(&link).unwrap();
+        assert!(round_tripped.tls.is_none());
+        assert_eq!(round_tripped.name, "Plain");
+    }
+
+    #[test]
+    fn generate_trojan_round_trips() {
+        let original = parse_uri(
+            "trojan://p%40ssword@trojan.example.com:443?sni=trojan.example.com&allowInsecure=1#Trojan%20Server",
+        )
+        .unwrap();
+        let link = generate_share_url(&original).unwrap();
+        assert!(link.starts_with("trojan://"));
+
+        let round_tripped = parse_uri(&link).unwrap();
+        assert_eq!(round_tripped.password, original.password);
+        assert_eq!(round_tripped.address, original.address);
+        assert_eq!(round_tripped.port, original.port);
+        assert_eq!(round_tripped.name, original.name);
+        let tls = round_tripped.tls.unwrap();
+        assert!(tls.insecure);
+        assert_eq!(tls.server_name, original.tls.unwrap().server_name);
+    }
+
+    /// Regression test for a bug caught via live CDP testing (clicking the
+    /// real "Copy share link" button), not by the round-trip test above:
+    /// `tls.enabled` with no `sni` and `insecure: false` used to leave a
+    /// stray bare `?` right before the fragment (`query_pairs_mut()` sets
+    /// the query to `Some("")` merely by being called, even with nothing
+    /// appended).
+    #[test]
+    fn generate_trojan_with_bare_tls_has_no_stray_query_marker() {
+        let server = parse_uri("trojan://hunter2@trojan2.example.com:443#RetestTrojan").unwrap();
+        assert!(server.tls.as_ref().unwrap().enabled);
+        assert!(server.tls.as_ref().unwrap().server_name.is_none());
+        assert!(!server.tls.as_ref().unwrap().insecure);
+
+        let link = generate_share_url(&server).unwrap();
+        assert!(!link.contains('?'), "unexpected stray query marker in {link:?}");
+
+        let round_tripped = parse_uri(&link).unwrap();
+        assert_eq!(round_tripped.password, server.password);
+        assert_eq!(round_tripped.name, server.name);
+        assert!(round_tripped.tls.unwrap().enabled);
+    }
+
+    #[test]
+    fn generate_shadowsocks_round_trips() {
+        let userinfo = STANDARD.encode("aes-256-gcm:S3cr3tPass");
+        let uri = format!("ss://{userinfo}@ss.example.com:8388#SS%20Node");
+        let original = parse_uri(&uri).unwrap();
+
+        let link = generate_share_url(&original).unwrap();
+        assert!(link.starts_with("ss://"));
+
+        let round_tripped = parse_uri(&link).unwrap();
+        assert_eq!(round_tripped.encryption, original.encryption);
+        assert_eq!(round_tripped.password, original.password);
+        assert_eq!(round_tripped.address, original.address);
+        assert_eq!(round_tripped.port, original.port);
+        assert_eq!(round_tripped.name, original.name);
+        assert!(round_tripped.tls.is_none());
+    }
+
+    #[test]
+    fn generate_vmess_round_trips() {
+        let json = r#"{"ps":"Vmess TLS Node","add":"vmess.example.com","port":"443",
+                       "id":"c1a2b3c4-d5e6-f708-1920-a1b2c3d4e5f6","aid":"0",
+                       "scy":"auto","tls":"tls","sni":"cdn.example.com"}"#;
+        let uri = format!("vmess://{}", STANDARD.encode(json));
+        let original = parse_uri(&uri).unwrap();
+
+        let link = generate_share_url(&original).unwrap();
+        assert!(link.starts_with("vmess://"));
+
+        let round_tripped = parse_uri(&link).unwrap();
+        assert_eq!(round_tripped.uuid, original.uuid);
+        assert_eq!(round_tripped.address, original.address);
+        assert_eq!(round_tripped.port, original.port);
+        assert_eq!(round_tripped.name, original.name);
+        assert_eq!(round_tripped.encryption, original.encryption);
+        let tls = round_tripped.tls.unwrap();
+        assert_eq!(tls.server_name, original.tls.unwrap().server_name);
+    }
+
+    #[test]
+    fn generate_share_url_returns_none_for_wireguard() {
+        let server = ServerConfig {
+            id: "wg-1".to_string(),
+            name: "WG".to_string(),
+            protocol: Protocol::Wireguard,
+            address: "wg.example.com".to_string(),
+            port: 51820,
+            uuid: None,
+            password: None,
+            encryption: None,
+            flow: None,
+            tls: None,
+            wireguard_private_key: Some("priv".to_string()),
+            wireguard_peer_public_key: Some("pub".to_string()),
+            wireguard_pre_shared_key: None,
+            wireguard_local_address: Some("10.0.0.2/32".to_string()),
+            source: ServerSource::Manual,
+        };
+        assert!(generate_share_url(&server).is_none());
     }
 }

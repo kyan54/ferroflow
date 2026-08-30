@@ -62,9 +62,27 @@ export interface Dictionary {
     };
     trafficFlow: {
       title: string;
+      hint: string;
+      searchPlaceholder: string;
+      searchAriaLabel: string;
+      searchNoMatch: string;
       emptyNotRunning: string;
       emptyNoConnections: string;
-      emptyIdle: string;
+      myDevice: string;
+      others: string;
+      exitLabels: Record<"proxy" | "direct" | "block", string>;
+      kindLabels: { device: string; host: string; outbound: string };
+      tooltip: {
+        type: string;
+        connections: (count: number) => string;
+        flow: string;
+      };
+      contextMenu: {
+        addRuleHint: string;
+        proxy: string;
+        direct: string;
+        block: string;
+      };
     };
     unlock: {
       title: string;
@@ -92,8 +110,8 @@ export interface Dictionary {
   servers: {
     title: string;
     /** Header subtitle -- just the total count, since ferroflow has no
-     * mesh/subscription-vs-manual distinction tracked as separate fields
-     * (see docs/ipc-contract.md). */
+     * mesh-node concept (tailscale/WARP-style endpoints) to break out
+     * separately (see docs/ipc-contract.md). */
     subtitle: (total: number) => string;
     testAll: string;
     testingAll: string;
@@ -119,6 +137,14 @@ export interface Dictionary {
       tlsReality: string;
     };
     duplicate: string;
+    /** "Copy share link" -- hidden for `protocol === "wireguard"` (no
+     * share-link format exists for it). */
+    copyShareUrl: string;
+    /** "Clone to self-built" -- only shown for `source === "subscription"`
+     * servers; see `ServerSource`'s doc comment. */
+    cloneToSelfBuilt: string;
+    /** Name suffix applied by `cloneToSelfBuilt`, e.g. "{name} (self-built)". */
+    cloneToSelfBuiltName: (name: string) => string;
     delete: string;
     confirmDelete: string;
     tlsBadge: string;
@@ -167,21 +193,35 @@ export interface Dictionary {
     title: string;
     subtitle: string;
     addRule: string;
+    addFirstRule: string;
     smartRoutingNote: string;
+    smartOnlyNotice: string;
     description: string;
     empty: string;
     enabledAriaLabel: string;
     edit: string;
+    moveTop: string;
     moveUp: string;
     moveDown: string;
+    moveBottom: string;
     delete: string;
     confirmDelete: string;
+    editOrder: string;
+    editOrderHintSearch: string;
+    saveOrder: string;
+    orderDraftUnsaved: string;
+    searchPlaceholder: string;
+    searchAriaLabel: string;
+    searchNoMatch: string;
+    resourceMissing: string;
+    resourceMissingTip: string;
     regionCard: {
       title: string;
       toggleAriaLabel: string;
       regionLabel: string;
       regionExplainer: string;
       presetAriaLabel: string;
+      notActiveHint: string;
     };
     ruleListCard: {
       title: string;
@@ -189,6 +229,14 @@ export interface Dictionary {
       columnRule: string;
       columnStrategy: string;
       columnActions: string;
+    };
+    chain: {
+      title: string;
+      stepRules: string;
+      stepSmart: string;
+      stepDefault: string;
+      instruction1: string;
+      instruction2: (outbound: string) => string;
     };
   };
 
@@ -198,6 +246,13 @@ export interface Dictionary {
     name: string;
     matchType: string;
     matchTypeLabels: Record<RuleMatchType, string>;
+    matchTypeCategories: {
+      domain: string;
+      network: string;
+      process: string;
+      ruleset: string;
+    };
+    matchTypeHints: Record<RuleMatchType, string>;
     ruleSetResources: string;
     noRuleResources: string;
     values: string;
@@ -397,6 +452,10 @@ export interface Dictionary {
     serverDeleteFailed: (msg: string) => string;
     serverDuplicated: (name: string) => string;
     serverDuplicateFailed: (msg: string) => string;
+    serverCloned: (name: string) => string;
+    serverCloneFailed: (msg: string) => string;
+    shareUrlCopied: string;
+    shareUrlCopyFailed: (msg: string) => string;
     serverSelectFailed: (msg: string) => string;
     serversImported: (n: number) => string;
     subscriptionImportFailed: (msg: string) => string;
@@ -410,6 +469,7 @@ export interface Dictionary {
     ruleRemoved: string;
     ruleDeleteFailed: (msg: string) => string;
     ruleReorderFailed: (msg: string) => string;
+    ruleOrderConflict: string;
     appRoutingUpdateFailed: (appLabel: string, msg: string) => string;
     presetApplied: (label: string) => string;
     presetApplyFailed: (msg: string) => string;
@@ -440,5 +500,6 @@ export interface Dictionary {
     logsCopied: string;
     logsCopyFailed: (msg: string) => string;
     latencyTestFailed: (msg: string) => string;
+    domainAlreadyInRule: (domain: string) => string;
   };
 }

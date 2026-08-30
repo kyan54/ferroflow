@@ -445,7 +445,7 @@ mod tests {
         use std::net::TcpStream;
 
         use crate::CoreManager;
-        use shared_types::{Protocol, ProxyModeType, ServerConfig};
+        use shared_types::{Protocol, ProxyModeType, ServerConfig, ServerSource};
 
         let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
         let binary =
@@ -497,6 +497,7 @@ mod tests {
             wireguard_peer_public_key: None,
             wireguard_pre_shared_key: None,
             wireguard_local_address: None,
+            source: ServerSource::Manual,
         };
 
         let started = manager

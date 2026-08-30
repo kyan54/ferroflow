@@ -1,9 +1,21 @@
 import { useState } from "react";
 import { useAppStore } from "../store";
 import { useTranslation } from "../i18n";
-import { RULE_MATCH_TYPES, RULE_OUTBOUNDS } from "../types";
+import { RULE_OUTBOUNDS } from "../types";
 import type { RoutingRule, RuleMatchType, RuleOutbound } from "../types";
-import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Textarea, Toggle } from "./ui";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Button,
+  Input,
+  Select,
+  Textarea,
+  Toggle,
+  SegmentedControl,
+} from "./ui";
+import type { SegmentedOption } from "./ui";
 
 const MATCH_TYPE_PLACEHOLDERS: Record<RuleMatchType, string> = {
   domain: "example.com",
@@ -13,6 +25,19 @@ const MATCH_TYPE_PLACEHOLDERS: Record<RuleMatchType, string> = {
   processName: "chrome.exe",
   ruleSet: "",
 };
+
+/** Groups `RULE_MATCH_TYPES` the same way the real FlowZ app's rule dialog
+ * categorizes match types (domain / network / process / rule-set) -- see
+ * `rule-type-meta.ts`'s `CATEGORY_TYPES` in the reference Electron source.
+ * Trimmed to only the match types ferroflow's `RuleMatchType` actually has
+ * (no domainRegex/sourceIpCidr/port/device categories -- those aren't part
+ * of this app's routing-rule model). */
+const MATCH_TYPE_CATEGORIES: { category: "domain" | "network" | "process" | "ruleset"; types: RuleMatchType[] }[] = [
+  { category: "domain", types: ["domain", "domainSuffix", "domainKeyword"] },
+  { category: "network", types: ["ipCidr"] },
+  { category: "process", types: ["processName"] },
+  { category: "ruleset", types: ["ruleSet"] },
+];
 
 function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -35,6 +60,11 @@ export function RuleForm({
   const updateRule = useAppStore((s) => s.updateRule);
   const ruleResources = useAppStore((s) => s.config?.ruleResources ?? []);
   const isEditing = !!initialRule;
+
+  const outboundOptions: SegmentedOption<RuleOutbound>[] = RULE_OUTBOUNDS.map((o) => ({
+    value: o,
+    label: t.ruleForm.outboundLabels[o],
+  }));
 
   const [name, setName] = useState(initialRule?.name ?? "");
   const [matchType, setMatchType] = useState<RuleMatchType>(initialRule?.matchType ?? "domainSuffix");
@@ -108,10 +138,14 @@ export function RuleForm({
             <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
               {t.ruleForm.matchType}
               <Select value={matchType} onChange={(e) => setMatchType(e.target.value as RuleMatchType)}>
-                {RULE_MATCH_TYPES.map((mt) => (
-                  <option key={mt} value={mt}>
-                    {t.ruleForm.matchTypeLabels[mt]}
-                  </option>
+                {MATCH_TYPE_CATEGORIES.map(({ category, types }) => (
+                  <optgroup key={category} label={t.ruleForm.matchTypeCategories[category]}>
+                    {types.map((mt) => (
+                      <option key={mt} value={mt}>
+                        {t.ruleForm.matchTypeLabels[mt]}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </Select>
             </label>
@@ -149,21 +183,16 @@ export function RuleForm({
                   onChange={(e) => setValuesText(e.target.value)}
                   placeholder={MATCH_TYPE_PLACEHOLDERS[matchType]}
                 />
+                <span className="text-xs font-normal text-fg-faint">{t.ruleForm.matchTypeHints[matchType]}</span>
               </label>
             )}
 
-            <label className="flex flex-col gap-1 text-sm font-medium text-fg-dim">
+            <label className="col-span-2 flex flex-col gap-1 text-sm font-medium text-fg-dim">
               {t.ruleForm.outbound}
-              <Select value={outbound} onChange={(e) => setOutbound(e.target.value as RuleOutbound)}>
-                {RULE_OUTBOUNDS.map((o) => (
-                  <option key={o} value={o}>
-                    {t.ruleForm.outboundLabels[o]}
-                  </option>
-                ))}
-              </Select>
+              <SegmentedControl options={outboundOptions} value={outbound} onChange={setOutbound} />
             </label>
 
-            <div className="flex items-end pb-1.5">
+            <div className="col-span-2 rounded-md border border-line bg-surface-2 px-3 py-2">
               <Toggle checked={enabled} onChange={setEnabled} label={t.ruleForm.enabled} />
             </div>
           </div>

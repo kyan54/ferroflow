@@ -486,7 +486,7 @@ fn build_config_with_inbound(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared_types::TlsConfig;
+    use shared_types::{ServerSource, TlsConfig};
     use std::path::PathBuf;
 
     fn base_server(protocol: Protocol) -> ServerConfig {
@@ -505,6 +505,7 @@ mod tests {
             wireguard_peer_public_key: None,
             wireguard_pre_shared_key: None,
             wireguard_local_address: None,
+            source: ServerSource::Manual,
         }
     }
 

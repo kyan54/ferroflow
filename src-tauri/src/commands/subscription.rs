@@ -81,6 +81,21 @@ pub async fn subscription_import_text(
 /// its native open-file dialog). `.yaml`/`.yml` (case-insensitive) is parsed
 /// as a Clash config's `proxies:` list; anything else is treated as
 /// free-form share-link text, same as `subscription_import_text`.
+/// Builds the share-link (`vless://`/`trojan://`/`ss://`/`vmess://`) for one
+/// already-persisted server -- the "Copy share link" button on the Servers
+/// page (see `ServersView.tsx`). Pure/synchronous, unlike the three import
+/// commands above -- no network, no config mutation. `share_url_unsupported`
+/// for `Protocol::Wireguard`, which has no share-link format at all (see
+/// `subscription::generate_share_url`'s doc comment); the frontend hides the
+/// button for that protocol rather than relying on this error, but it's kept
+/// as a defensive fallback.
+#[tauri::command]
+pub fn subscription_generate_share_url(server: ServerConfig) -> AppResult<String> {
+    subscription::generate_share_url(&server).ok_or_else(|| {
+        AppError::new("share_url_unsupported", "this server's protocol has no share-link format".to_string())
+    })
+}
+
 #[tauri::command]
 pub async fn subscription_import_file(
     app: AppHandle,

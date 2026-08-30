@@ -307,7 +307,7 @@ export function DashboardView() {
           </Card>
         </div>
 
-        <ConnectionTopology snapshot={connectionsSnapshot} running={running} />
+        <ConnectionTopology />
 
         <UnlockStatusCard
           results={unlockResults}

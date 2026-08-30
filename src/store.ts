@@ -106,6 +106,17 @@ interface AppStore {
   addServer: (server: ServerConfig) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
   duplicateServer: (id: string) => Promise<void>;
+  /** "Clone to self-built": same as `duplicateServer`, but the copy always
+   * gets `source: "manual"` regardless of the original's -- see
+   * `ServerSource`'s doc comment. Only shown in the UI for
+   * `source === "subscription"` servers (a manual server's "Duplicate"
+   * button already does the same thing). */
+  cloneToSelfBuilt: (id: string) => Promise<void>;
+  /** Generates this server's share-link (`vless://`/`trojan://`/`ss://`/
+   * `vmess://`) via `subscription::generate_share_url` and copies it to the
+   * clipboard -- `wireguard` servers have no share-link format, see
+   * `hasShareLink` in `ServersView.tsx`, which hides the button for them. */
+  copyShareUrl: (id: string) => Promise<void>;
   selectServer: (id: string | null) => Promise<void>;
   importSubscription: (url: string) => Promise<void>;
   importSubscriptionText: (text: string) => Promise<void>;
@@ -115,8 +126,13 @@ interface AppStore {
   addRule: (rule: RoutingRule) => Promise<void>;
   updateRule: (rule: RoutingRule) => Promise<void>;
   deleteRule: (id: string) => Promise<void>;
-  moveRuleUp: (id: string) => Promise<void>;
-  moveRuleDown: (id: string) => Promise<void>;
+  /** Commits a full reordering of `config.rules` in one IPC round-trip (used
+   * by `RulesView`'s "edit order" draft mode -- unlike a per-step move, the
+   * caller batches every drag/move-to-edge change locally and only calls
+   * this once, on "Save order"). Returns whether it succeeded so the view
+   * can decide whether to exit the draft (kept open on failure, matching
+   * the toast this already pushes rather than throwing). */
+  commitRuleOrder: (orderedIds: string[]) => Promise<boolean>;
 
   /** Sets (or, with `outbound: null`, removes) the `RoutingRule` behind one
    * `AppRoutingView` app toggle -- downloads the backing GeoSite resource
@@ -357,6 +373,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  cloneToSelfBuilt: async (id) => {
+    const original = get().config?.servers.find((s) => s.id === id);
+    if (!original) return;
+    const clone: ServerConfig = {
+      ...original,
+      id: newId(),
+      name: getT().servers.cloneToSelfBuiltName(original.name),
+      source: "manual",
+    };
+    try {
+      const config = await ipc.serversAdd(clone);
+      set({ config });
+      get().pushToast("success", getT().toasts.serverCloned(original.name));
+    } catch (err) {
+      get().pushToast("error", getT().toasts.serverCloneFailed(appErrorMessage(err)));
+    }
+  },
+
+  copyShareUrl: async (id) => {
+    const server = get().config?.servers.find((s) => s.id === id);
+    if (!server) return;
+    try {
+      const url = await ipc.subscriptionGenerateShareUrl(server);
+      await navigator.clipboard.writeText(url);
+      get().pushToast("success", getT().toasts.shareUrlCopied);
+    } catch (err) {
+      get().pushToast("error", getT().toasts.shareUrlCopyFailed(appErrorMessage(err)));
+    }
+  },
+
   selectServer: async (id) => {
     const current = get().config;
     if (!current) return;
@@ -456,31 +502,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  moveRuleUp: async (id) => {
-    const rules = get().config?.rules ?? [];
-    const index = rules.findIndex((r) => r.id === id);
-    if (index <= 0) return;
-    const ids = rules.map((r) => r.id);
-    [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
+  commitRuleOrder: async (orderedIds) => {
     try {
-      const config = await ipc.rulesReorder(ids);
+      const config = await ipc.rulesReorder(orderedIds);
       set({ config });
+      return true;
     } catch (err) {
       get().pushToast("error", getT().toasts.ruleReorderFailed(appErrorMessage(err)));
-    }
-  },
-
-  moveRuleDown: async (id) => {
-    const rules = get().config?.rules ?? [];
-    const index = rules.findIndex((r) => r.id === id);
-    if (index === -1 || index >= rules.length - 1) return;
-    const ids = rules.map((r) => r.id);
-    [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
-    try {
-      const config = await ipc.rulesReorder(ids);
-      set({ config });
-    } catch (err) {
-      get().pushToast("error", getT().toasts.ruleReorderFailed(appErrorMessage(err)));
+      return false;
     }
   },
 

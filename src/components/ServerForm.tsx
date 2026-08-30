@@ -80,6 +80,7 @@ export function ServerForm({ onDone }: { onDone: () => void }) {
       wireguardPeerPublicKey: isWireguard ? wireguardPeerPublicKey.trim() || null : null,
       wireguardPreSharedKey: isWireguard ? wireguardPreSharedKey.trim() || null : null,
       wireguardLocalAddress: isWireguard ? wireguardLocalAddress.trim() || null : null,
+      source: "manual",
     };
 
     setSubmitting(true);

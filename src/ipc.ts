@@ -60,6 +60,8 @@ export const ipc = {
   subscriptionImport: (url: string) => invoke<UserConfig>("subscription_import", { url }),
   subscriptionImportText: (text: string) => invoke<UserConfig>("subscription_import_text", { text }),
   subscriptionImportFile: (path: string) => invoke<UserConfig>("subscription_import_file", { path }),
+  subscriptionGenerateShareUrl: (server: ServerConfig) =>
+    invoke<string>("subscription_generate_share_url", { server }),
 
   warpRegister: () => invoke<UserConfig>("warp_register"),
 

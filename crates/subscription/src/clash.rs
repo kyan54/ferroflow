@@ -19,7 +19,7 @@
 //! no one and ignored here either.
 
 use serde_yaml::{Mapping, Value};
-use shared_types::{Protocol, ServerConfig, TlsConfig};
+use shared_types::{Protocol, ServerConfig, ServerSource, TlsConfig};
 
 use crate::parse::generate_id;
 
@@ -100,6 +100,7 @@ fn convert_vless(proxy: &Mapping, name: String) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -130,6 +131,7 @@ fn convert_trojan(proxy: &Mapping, name: String) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -154,6 +156,7 @@ fn convert_shadowsocks(proxy: &Mapping, name: String) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 
@@ -190,6 +193,7 @@ fn convert_vmess(proxy: &Mapping, name: String) -> Option<ServerConfig> {
         wireguard_peer_public_key: None,
         wireguard_pre_shared_key: None,
         wireguard_local_address: None,
+        source: ServerSource::Subscription,
     })
 }
 

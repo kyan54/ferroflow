@@ -127,7 +127,7 @@ mod tests {
     #[ignore = "needs a real sing-box binary at <workspace root>/.dev-bin/"]
     async fn real_singbox_clash_api_list_connections_returns_snapshot() {
         use crate::CoreManager;
-        use shared_types::{Protocol, ProxyModeType, ServerConfig};
+        use shared_types::{Protocol, ProxyModeType, ServerConfig, ServerSource};
 
         let binary_name = if cfg!(windows) { "sing-box.exe" } else { "sing-box" };
         let binary =
@@ -150,6 +150,7 @@ mod tests {
             wireguard_peer_public_key: None,
             wireguard_pre_shared_key: None,
             wireguard_local_address: None,
+            source: ServerSource::Manual,
         };
 
         let started = manager

@@ -55,6 +55,7 @@ pub fn run() {
             commands::subscription::subscription_import,
             commands::subscription::subscription_import_text,
             commands::subscription::subscription_import_file,
+            commands::subscription::subscription_generate_share_url,
             commands::warp::warp_register,
             commands::system::system_proxy_status,
             commands::system::platform_info,

@@ -34,6 +34,27 @@ pub struct TlsConfig {
     pub reality_short_id: Option<String>,
 }
 
+/// Where a `ServerConfig` came from: hand-entered via `ServerForm` (or the
+/// direct result of a "Clone to self-built" action -- see below), or
+/// appended by one of the `subscription_import*` commands
+/// (`commands::subscription`). Purely a UI-facing distinction for now:
+/// unlike the sibling Electron app's `subscriptionId` (which points back at
+/// a persisted, refreshable subscription entity so a re-sync or "delete
+/// subscription" can cascade), ferroflow's subscription import is a
+/// one-shot append with no such entity to link back to (see
+/// `commands::subscription`'s module doc "Known simplification" note) --
+/// this field can't gate a refresh/cascade-delete the way the real app's
+/// field does, only the "Clone to self-built" button's visibility (see
+/// `ServersView.tsx`). `Manual` is also what every clone/duplicate of a
+/// `Subscription` server becomes, once "Clone to self-built" strips it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ServerSource {
+    #[default]
+    Manual,
+    Subscription,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
@@ -72,6 +93,15 @@ pub struct ServerConfig {
     /// one-element array when building the config (see
     /// `core-manager::config::build_outbound`'s `Wireguard` arm).
     pub wireguard_local_address: Option<String>,
+
+    /// See [`ServerSource`]'s doc comment. `#[serde(default)]` so a
+    /// `config.json` persisted before this field existed still loads
+    /// cleanly -- every pre-existing server becomes `Manual`, which is a
+    /// safe default since nothing distinguished them from a manually
+    /// hand-typed server anyway (their subscription origin, if any, was
+    /// never tracked before this field existed).
+    #[serde(default)]
+    pub source: ServerSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

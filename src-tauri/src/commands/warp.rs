@@ -9,7 +9,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use shared_types::{AppError, AppResult, Protocol, ServerConfig, UserConfig};
+use shared_types::{AppError, AppResult, Protocol, ServerConfig, ServerSource, UserConfig};
 use tauri::{AppHandle, State};
 
 use crate::state::{save_persisted_config, AppState};
@@ -76,6 +76,9 @@ pub async fn warp_register(app: AppHandle, state: State<'_, AppState>) -> AppRes
         wireguard_peer_public_key: Some(registration.peer_public_key),
         wireguard_pre_shared_key: None,
         wireguard_local_address: Some(registration.local_address_v4),
+        // Not from a subscription -- registered directly against
+        // Cloudflare's own API, same category as a hand-typed server.
+        source: ServerSource::Manual,
     };
     config.servers.push(server);
     let snapshot = config.clone();

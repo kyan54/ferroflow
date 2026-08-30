@@ -5,6 +5,13 @@ export type Protocol = "vless" | "trojan" | "shadowsocks" | "vmess" | "wireguard
 
 export const PROTOCOLS: Protocol[] = ["vless", "trojan", "shadowsocks", "vmess", "wireguard"];
 
+/** Where a `ServerConfig` came from -- see `crates/shared-types::ServerSource`'s
+ * doc comment for the full scope note (this is a lighter-weight, UI-facing
+ * distinction than the sibling Electron app's `subscriptionId`, since
+ * ferroflow's subscription import has no persisted subscription entity to
+ * link back to). `"manual"` is what "Clone to self-built" always produces. */
+export type ServerSource = "manual" | "subscription";
+
 export interface TlsConfig {
   enabled: boolean;
   serverName?: string | null;
@@ -38,6 +45,11 @@ export interface ServerConfig {
   wireguardPreSharedKey?: string | null;
   /** This client's local tunnel address in CIDR form (e.g. "10.0.0.2/32"). Only used by "wireguard". */
   wireguardLocalAddress?: string | null;
+
+  /** See `ServerSource`'s doc comment. Absent on a `config.json` persisted
+   * before this field existed -- treat a missing value as `"manual"` (the
+   * backend's own `#[serde(default)]` fallback). */
+  source: ServerSource;
 }
 
 export type ProxyMode = "global" | "smart" | "direct";

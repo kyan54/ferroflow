@@ -875,6 +875,7 @@ mod tests {
             wireguard_peer_public_key: None,
             wireguard_pre_shared_key: None,
             wireguard_local_address: None,
+            source: shared_types::ServerSource::Manual,
         }
     }
 

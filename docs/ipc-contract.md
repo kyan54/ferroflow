@@ -55,6 +55,7 @@ try {
 | `subscription_import` | `url: string` | `UserConfig` | fetches + parses a subscription URL, appends the parsed servers, persists, returns full config; see "Subscription import" below |
 | `subscription_import_text` | `text: string` | `UserConfig` | parses pasted, free-form share-link text (no network) through the same pipeline as `subscription_import`, appends, persists, returns full config |
 | `subscription_import_file` | `path: string` | `UserConfig` | reads a local file (chosen by the frontend's native open dialog); `.yaml`/`.yml` is parsed as a Clash config's `proxies:` list, anything else as free-form share-link text; appends, persists, returns full config |
+| `subscription_generate_share_url` | `server: ServerConfig` | `string` | builds the share-link for one server -- the exact inverse of `subscription::parse_uri`; pure/synchronous, no config mutation; `share_url_unsupported` for `Protocol::Wireguard`; see "Copy share link" below |
 | `warp_register` | — | `UserConfig` | registers a new anonymous Cloudflare WARP device, appends it as a WireGuard server, persists, returns full config; see "Cloudflare WARP" below |
 | `backup_export` | `path: string` | `()` | writes the current config as a versioned JSON backup to `path` (chosen by the frontend's native save dialog); see "Backup & diagnostics" below |
 | `backup_import` | `path: string` | `UserConfig` | reads a versioned JSON backup from `path` (chosen by the frontend's native open dialog), replaces + persists the config, returns the new config |
@@ -153,6 +154,11 @@ provider's URL, an update timestamp, ...) to dedupe against yet. Fine for a
 one-shot "paste a URL, get servers" MVP flow; revisit once there's a UI for
 managing/refreshing a named subscription rather than importing once.
 
+Every server produced by any of the three entry points below (URL, paste, or
+file) gets `source: "subscription"` (see "Server source" under "Types"
+below); a server built by hand via `ServerForm`, or by `warp_register`, gets
+`source: "manual"`.
+
 **Three import entry points, one shared tail.** The Servers page's import
 modal (`ServersView.tsx`'s `SubscriptionImportForm`) offers three modes,
 each backed by its own command but all funneling into the same
@@ -244,6 +250,50 @@ no account attached to it, so this isn't treated as urgent. A future pass
 could add those two fields to `ServerConfig` (WireGuard-only, like the
 existing `wireguard_*` fields) if cleaning up abandoned registrations turns
 out to matter.
+
+## Copy share link / Clone to self-built
+
+Two per-server actions on the Servers page card (`ServersView.tsx`'s
+`ServerCard`), mirroring buttons in the sibling Electron app's node list
+(`server-actions.tsx`'s `copyShareUrl`/`cloneToManual`):
+
+- **Copy share link** — calls `subscription_generate_share_url` (backed by
+  `subscription::generate_share_url`, the exact inverse of
+  `subscription::parse_uri`) and copies the result to the clipboard via
+  `navigator.clipboard.writeText`, same mechanism `LogsView`'s "Copy all"
+  already uses. Hidden for `protocol === "wireguard"` (`hasShareLink` in
+  `ServersView.tsx`) rather than shown disabled, since WireGuard has no
+  share-link format at all — see "WireGuard" below.
+- **Clone to self-built** — only shown for `source === "subscription"`
+  servers (see "Server source" below). Functionally identical to the
+  always-present "Duplicate" button (new id, appended via `servers_add`)
+  except the clone is force-set to `source: "manual"` and gets a distinct
+  name suffix, so it becomes an independent copy no future re-import of the
+  same subscription can be confused with. Store-side: `cloneToSelfBuilt` in
+  `store.ts`, right next to `duplicateServer`.
+
+### Server source (`ServerSource`, manual vs. subscription)
+
+The sibling Electron app distinguishes a node's origin via `subscriptionId`
+(`string | undefined`) — a pointer back to a persisted, refreshable
+subscription entity, letting it cascade-delete a subscription's nodes or
+warn that editing one will be overwritten on next sync. ferroflow's
+subscription import (see "Subscription import" above) has no such entity —
+it's a one-shot fetch-parse-append with no dedupe and nothing to refresh
+against (see that section's "Known limitation") — so `ServerConfig.source`
+is deliberately a lighter two-value enum (`"manual" | "subscription"`)
+rather than a copy of `subscriptionId`: it can gate "Clone to self-built"'s
+visibility, but **cannot** support a refresh/cascade-delete the real app's
+field does, since there's nothing on this side to refresh from. `#[serde(default)]`
+(→ `"manual"`) so a `config.json` persisted before this field existed still
+loads. Set by:
+
+- `ServerForm`'s manual-add path and `warp_register` → `"manual"`.
+- All four protocol parsers in `subscription::parse` and all four Clash-YAML
+  converters in `subscription::clash` (i.e. every `subscription_import*`
+  command) → `"subscription"`.
+- `duplicateServer` (existing "Duplicate" button) preserves whatever the
+  original had; `cloneToSelfBuilt` always overrides to `"manual"`.
 
 ## Backup & diagnostics
 
@@ -522,6 +572,48 @@ each connection's own `upload`/`download`) are sing-box's own running
 totals since the process started — this app doesn't compute, reset, or
 window them itself. Stopping and restarting the proxy resets them to zero
 along with everything else, since it's a fresh sing-box process each time.
+
+## Connection topology
+
+`ConnectionTopology.tsx` (Dashboard's "连接拓扑"/"Connection topology" Sankey
+diagram) is frontend-only -- **no new Tauri commands**. It re-shapes the
+same `connectionsSnapshot` `DashboardView` already polls (see "Live
+connections" above) via `src/lib/connectionTopology.ts`
+(device -> host -> exit-node aggregation, by connection *count* not bytes)
+and `src/lib/sankeyLayout.ts` (coordinates), same pattern as "App routing &
+region presets" reusing existing infra instead of adding a command.
+
+**Data source: live snapshot only, deliberately.** This was ported from the
+reference FlowZ Electron app's own "连接拓扑" page (found in the sibling
+`FlowZ` checkout, `src/renderer/components/home/` +
+`src/main/services/connections-aggregate.ts`) rather than approximated --
+and that app's own topology is *also* built only from currently-open
+connections, never from persisted history: its `StatsService` deletes a
+connection from its tracking map the instant sing-box reports it `CLOSED`.
+A diagram with 15+ distinct named hosts doesn't require this app's opt-in
+"connection history" feature (see "Connection history" below) at all; it's
+just what a real browsing session's concurrently-open connections
+(keep-alives, background sync, polling, etc.) looks like at any one moment.
+Consequently the topology card shows the same two empty states as
+`ConnectionsView`'s active-connections table (not running / no active
+connections) regardless of whether `connectionHistoryEnabled` is on.
+
+**Host cutoff.** The reference app folds hosts into an "其他"/"Other" bucket
+past its own `TOPOLOGY_TOP_N = 15` (not "top 8") -- `connectionTopology.ts`
+matches that constant exactly.
+
+**Add-rule context menu.** Right-clicking a named host node opens a small
+menu (built from scratch -- ferroflow had no dropdown/context-menu
+primitive, and the reference app's is a much larger feature this port
+intentionally doesn't replicate in full; see that file's doc comment) with
+three one-click actions (Proxy/Direct/Block) that build a `RoutingRule`
+(`domainSuffix` for a resolved host, `ipCidr` for a bare destination IP,
+suffixed `/32` or `/128`) and call the existing `rules_add` — same command
+`RuleForm`/`RulesView` already use, not a dedicated one. A minimal
+exact-value duplicate check (not the reference app's full
+domainSuffix-subsumes-subdomain "already covered by an earlier rule"
+analysis) avoids piling up repeat rules from right-clicking the same host
+twice.
 
 ## sing-box dashboard
 
@@ -817,7 +909,8 @@ bottom, unlike `history_list`'s most-recent-first look-back convention).
 ## Types (`crates/shared-types/src/lib.rs`)
 
 `Protocol` (Vless/Trojan/Shadowsocks/Vmess/Wireguard for MVP — see file
-header), `ServerConfig`, `ProxyMode`, `ProxyModeType`, `ProxyStatus`,
+header), `ServerConfig`, `ServerSource` (see "Server source" above),
+`ProxyMode`, `ProxyModeType`, `ProxyStatus`,
 `UserConfig`, `RoutingRule`, `RuleMatchType`, `RuleOutbound`,
 `RuleResourceCategory`, `RuleResourceInfo`, `HelperStatus`,
 `SystemProxyStatus`, `PlatformInfo`, `ConnectionMetadata`, `ConnectionInfo`,

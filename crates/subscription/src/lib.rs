@@ -20,4 +20,4 @@ pub mod parse;
 
 pub use clash::parse_clash_yaml;
 pub use fetch::{fetch_subscription, FetchError};
-pub use parse::{decode_subscription_body, parse_subscription_body, parse_uri};
+pub use parse::{decode_subscription_body, generate_share_url, parse_subscription_body, parse_uri};
