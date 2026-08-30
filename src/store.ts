@@ -127,6 +127,13 @@ interface AppStore {
    * own previously-applied rules (or the whole `rules` list, for the
    * "clears all" preset), sets `defaultOutbound`, and saves. */
   applyRegionPreset: (presetId: string) => Promise<void>;
+  /** Removes only the rules a region preset previously created (see
+   * `PRESET_RULE_PREFIX`), leaving `defaultOutbound`, manual rules, and
+   * `AppRoutingView` toggles untouched. Used for the Rules page's region
+   * routing on/off switch -- deliberately *not* the same as applying the
+   * "Global proxy, no rules" preset, which also wipes manual rules and is
+   * left as a deliberate, confirm-guarded action on the App routing page. */
+  clearRegionPreset: () => Promise<void>;
 
   startProxy: (serverId: string) => Promise<void>;
   stopProxy: () => Promise<void>;
@@ -547,6 +554,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await ipc.configSave(nextConfig);
       set({ config: nextConfig });
       get().pushToast("success", getT().toasts.presetApplied(preset.label));
+    } catch (err) {
+      get().pushToast("error", getT().toasts.presetApplyFailed(appErrorMessage(err)));
+    } finally {
+      set({ regionPresetBusy: false });
+    }
+  },
+
+  clearRegionPreset: async () => {
+    const current = get().config;
+    if (!current) return;
+
+    set({ regionPresetBusy: true });
+    try {
+      const nextConfig: UserConfig = {
+        ...current,
+        rules: current.rules.filter((r) => !r.id.startsWith(PRESET_RULE_PREFIX)),
+      };
+      await ipc.configSave(nextConfig);
+      set({ config: nextConfig });
     } catch (err) {
       get().pushToast("error", getT().toasts.presetApplyFailed(appErrorMessage(err)));
     } finally {

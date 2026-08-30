@@ -171,18 +171,36 @@ export const zh: Dictionary = {
 
   rules: {
     title: "规则",
+    subtitle: "管理域名、IP/端口、进程与规则集分流规则",
     addRule: "添加规则",
+    smartRoutingNote: "自定义规则与应用分流仅「智能路由」模式生效:全局模式走选中节点,直连模式全部直连。",
     description: "规则按从上到下的顺序匹配,命中第一条即生效。未匹配任何规则的流量将按当前代理模式处理。",
     empty: "还没有自定义路由规则。所有流量都将按当前代理模式处理。",
     enabledAriaLabel: "已启用",
+    edit: "编辑",
     moveUp: "上移",
     moveDown: "下移",
     delete: "删除",
     confirmDelete: "确认?",
+    regionCard: {
+      title: "地区分流",
+      toggleAriaLabel: "地区分流",
+      regionLabel: "地区预设",
+      regionExplainer: "按预设自动分流:本地直连,海外走代理。仅「智能路由」模式生效。",
+      presetAriaLabel: "地区预设",
+    },
+    ruleListCard: {
+      title: "规则列表",
+      columnEnabled: "启用",
+      columnRule: "规则",
+      columnStrategy: "策略",
+      columnActions: "操作",
+    },
   },
 
   ruleForm: {
     title: "添加规则",
+    editTitle: "编辑规则",
     name: "名称",
     matchType: "匹配类型",
     matchTypeLabels: {
@@ -205,6 +223,7 @@ export const zh: Dictionary = {
     enabled: "启用",
     cancel: "取消",
     submit: "添加规则",
+    save: "保存",
   },
 
   appRouting: {

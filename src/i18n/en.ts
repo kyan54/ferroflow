@@ -173,19 +173,39 @@ export const en: Dictionary = {
 
   rules: {
     title: "Rules",
+    subtitle: "Manage domain, IP/port, process, and rule-set routing rules.",
     addRule: "Add rule",
+    smartRoutingNote:
+      "Custom rules and app routing only take effect in Smart-routing mode: Global mode always uses the selected server, Direct mode always goes direct.",
     description:
       "Rules are evaluated top to bottom; the first match wins. Traffic that matches no rule falls back to the current proxy mode.",
     empty: "No custom routing rules yet. Everything goes through the current proxy mode.",
     enabledAriaLabel: "Enabled",
+    edit: "Edit",
     moveUp: "Move up",
     moveDown: "Move down",
     delete: "Delete",
     confirmDelete: "Confirm?",
+    regionCard: {
+      title: "Region routing",
+      toggleAriaLabel: "Region routing",
+      regionLabel: "Region presets",
+      regionExplainer:
+        "Auto-route by preset: local traffic direct, overseas traffic via proxy. Only applies in Smart-routing mode.",
+      presetAriaLabel: "Region preset",
+    },
+    ruleListCard: {
+      title: "Rule list",
+      columnEnabled: "Enabled",
+      columnRule: "Rule",
+      columnStrategy: "Strategy",
+      columnActions: "Actions",
+    },
   },
 
   ruleForm: {
     title: "Add rule",
+    editTitle: "Edit rule",
     name: "Name",
     matchType: "Match type",
     matchTypeLabels: {
@@ -208,6 +228,7 @@ export const en: Dictionary = {
     enabled: "Enabled",
     cancel: "Cancel",
     submit: "Add rule",
+    save: "Save changes",
   },
 
   appRouting: {

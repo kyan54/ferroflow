@@ -21,17 +21,31 @@ function newId(): string {
   return `rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function RuleForm({ onDone }: { onDone: () => void }) {
+export function RuleForm({
+  onDone,
+  initialRule,
+}: {
+  onDone: () => void;
+  /** When set, the form edits this existing rule (via `updateRule`) instead
+   * of creating a new one. */
+  initialRule?: RoutingRule;
+}) {
   const { t } = useTranslation();
   const addRule = useAppStore((s) => s.addRule);
+  const updateRule = useAppStore((s) => s.updateRule);
   const ruleResources = useAppStore((s) => s.config?.ruleResources ?? []);
+  const isEditing = !!initialRule;
 
-  const [name, setName] = useState("");
-  const [matchType, setMatchType] = useState<RuleMatchType>("domainSuffix");
-  const [valuesText, setValuesText] = useState("");
-  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
-  const [outbound, setOutbound] = useState<RuleOutbound>("direct");
-  const [enabled, setEnabled] = useState(true);
+  const [name, setName] = useState(initialRule?.name ?? "");
+  const [matchType, setMatchType] = useState<RuleMatchType>(initialRule?.matchType ?? "domainSuffix");
+  const [valuesText, setValuesText] = useState(
+    initialRule && initialRule.matchType !== "ruleSet" ? initialRule.values.join(", ") : "",
+  );
+  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>(
+    initialRule && initialRule.matchType === "ruleSet" ? initialRule.values : [],
+  );
+  const [outbound, setOutbound] = useState<RuleOutbound>(initialRule?.outbound ?? "direct");
+  const [enabled, setEnabled] = useState(initialRule?.enabled ?? true);
   const [submitting, setSubmitting] = useState(false);
 
   function toggleResource(id: string) {
@@ -52,7 +66,7 @@ export function RuleForm({ onDone }: { onDone: () => void }) {
     if (!name.trim() || values.length === 0) return;
 
     const rule: RoutingRule = {
-      id: newId(),
+      id: initialRule?.id ?? newId(),
       name: name.trim(),
       enabled,
       matchType,
@@ -62,7 +76,11 @@ export function RuleForm({ onDone }: { onDone: () => void }) {
 
     setSubmitting(true);
     try {
-      await addRule(rule);
+      if (isEditing) {
+        await updateRule(rule);
+      } else {
+        await addRule(rule);
+      }
       onDone();
     } finally {
       setSubmitting(false);
@@ -73,7 +91,7 @@ export function RuleForm({ onDone }: { onDone: () => void }) {
     <Card>
       <form onSubmit={handleSubmit}>
         <CardHeader>
-          <CardTitle>{t.ruleForm.title}</CardTitle>
+          <CardTitle>{isEditing ? t.ruleForm.editTitle : t.ruleForm.title}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-4">
           <div className="grid grid-cols-2 gap-3">
@@ -155,7 +173,7 @@ export function RuleForm({ onDone }: { onDone: () => void }) {
               {t.ruleForm.cancel}
             </Button>
             <Button type="submit" busy={submitting}>
-              {t.ruleForm.submit}
+              {isEditing ? t.ruleForm.save : t.ruleForm.submit}
             </Button>
           </div>
         </CardContent>

@@ -165,18 +165,36 @@ export interface Dictionary {
 
   rules: {
     title: string;
+    subtitle: string;
     addRule: string;
+    smartRoutingNote: string;
     description: string;
     empty: string;
     enabledAriaLabel: string;
+    edit: string;
     moveUp: string;
     moveDown: string;
     delete: string;
     confirmDelete: string;
+    regionCard: {
+      title: string;
+      toggleAriaLabel: string;
+      regionLabel: string;
+      regionExplainer: string;
+      presetAriaLabel: string;
+    };
+    ruleListCard: {
+      title: string;
+      columnEnabled: string;
+      columnRule: string;
+      columnStrategy: string;
+      columnActions: string;
+    };
   };
 
   ruleForm: {
     title: string;
+    editTitle: string;
     name: string;
     matchType: string;
     matchTypeLabels: Record<RuleMatchType, string>;
@@ -188,6 +206,7 @@ export interface Dictionary {
     enabled: string;
     cancel: string;
     submit: string;
+    save: string;
   };
 
   appRouting: {
