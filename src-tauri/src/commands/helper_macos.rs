@@ -194,10 +194,14 @@ pub async fn uninstall() -> AppResult<HelperStatus> {
 /// Resolves the bundled `ferroflow-helper-macos` binary path, in order:
 /// `FERROFLOW_HELPER_PATH` env var (verbatim, if set and non-empty) →
 /// `./.dev-bin/ferroflow-helper-macos` (dev convenience, gitignored) →
-/// `<resource_dir>/ferroflow-helper-macos` (packaged app case). Mirrors
-/// `core-manager`'s `locate_binary`, except this returns an error instead
-/// of a bare-name fallback, since there's no `$PATH` lookup that could
-/// plausibly find a privileged-helper binary.
+/// `<resource_dir>/helper/ferroflow-helper-macos` (packaged app case --
+/// staged there by `npm run build:helper`/`scripts/build-helper.mjs` into
+/// `src-tauri/resources/helper/`, which `bundle.resources` maps to
+/// `helper/` inside the bundle; see that script's doc comment for why this
+/// can't just be a bare-named workspace binary Cargo builds for free).
+/// Mirrors `core-manager`'s `locate_binary`, except this returns an error
+/// instead of a bare-name fallback, since there's no `$PATH` lookup that
+/// could plausibly find a privileged-helper binary.
 fn locate_helper_binary(app: &tauri::AppHandle) -> AppResult<PathBuf> {
     let mut tried = Vec::new();
 
@@ -219,7 +223,7 @@ fn locate_helper_binary(app: &tauri::AppHandle) -> AppResult<PathBuf> {
 
     match app.path().resource_dir() {
         Ok(resource_dir) => {
-            let candidate = resource_dir.join(HELPER_BINARY_NAME);
+            let candidate = resource_dir.join("helper").join(HELPER_BINARY_NAME);
             if candidate.is_file() {
                 return Ok(candidate);
             }

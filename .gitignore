@@ -27,6 +27,13 @@ dist-ssr
 # that script -- never committed.
 /src-tauri/resources/dashboard/
 
+# Built by `npm run build:helper` (scripts/build-helper.mjs) into
+# src-tauri/resources/helper/ -- the current platform's privileged-helper
+# binary, staged there so `bundle.resources` can package it. Platform-
+# specific and reproducible from source, so never committed (same reasoning
+# as /src-tauri/resources/dashboard/ above).
+/src-tauri/resources/helper/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

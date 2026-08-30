@@ -39,6 +39,9 @@ jobs:
       - name: Fetch sing-box dashboard assets
         run: npm run fetch:dashboard
 
+      - name: Build this platform's privileged-helper binary
+        run: npm run build:helper
+
       - name: cargo check (whole workspace, incl. this platform's helper crate)
         run: cargo check --workspace --all-targets
 

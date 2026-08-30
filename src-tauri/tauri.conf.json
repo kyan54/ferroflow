@@ -33,7 +33,8 @@
     ],
     "resources": {
       "resources/dashboard/": "dashboard/",
-      "resources/webview2/WebView2Loader.dll": "./"
+      "resources/webview2/WebView2Loader.dll": "./",
+      "resources/helper/": "helper/"
     },
     "windows": {
       "webviewInstallMode": {

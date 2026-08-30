@@ -89,16 +89,25 @@ command surface and any per-feature caveats.
 ```bash
 npm install
 npm run fetch:dashboard   # required -- see note below, even for cargo check
+npm run build:helper      # required -- builds this platform's privileged-helper binary
 npm run tauri dev
 ```
 
-**`npm run fetch:dashboard` is not optional**, even if you don't care about
-the dashboard feature: Tauri's build script validates every path in
-`tauri.conf.json`'s `bundle.resources` at *compile* time, not just when
-actually bundling — `cargo check`/`cargo build`/`cargo test` on the
-`ferroflow` package will fail with `resource path "resources\dashboard"
-doesn't exist` until this has been run once. (This bit CI initially; both
-`build.yml` and `release.yml` run it before any `cargo` step.)
+**Both `npm run fetch:dashboard` and `npm run build:helper` are not
+optional**, even if you don't care about the dashboard or the privileged
+helper (TUN mode / "Install helper" in Settings): Tauri's build script
+validates every path in `tauri.conf.json`'s `bundle.resources` at *compile*
+time, not just when actually bundling — `cargo check`/`cargo build`/
+`cargo test` on the `ferroflow` package will fail with `resource path
+"resources\dashboard"`/`"resources\helper"` doesn't exist until these have
+been run once. `npm run build:helper` additionally needs to be re-run any
+time `crates/helper-windows`/`helper-macos`/`helper-linux` or their shared
+dependencies (`helper-proto`, `shared-types`) change, since it stages a
+real compiled binary, not just a marker file — a stale one won't be
+noticed by `cargo check` (it isn't a Rust build artifact `cargo` tracks),
+so "Install helper" in Settings can silently install an old helper if you
+forget. (Missing `fetch:dashboard` bit CI initially; both `build.yml` and
+`release.yml` now run both scripts before any `cargo` step.)
 
 Rust workspace: `cargo check --workspace` / `cargo test --workspace --exclude ferroflow`
 (the `ferroflow` src-tauri package itself has no unit tests — the Tauri

@@ -167,7 +167,10 @@ pub async fn uninstall() -> AppResult<HelperStatus> {
 ///
 /// 1. `FERROFLOW_HELPER_PATH` env var, used verbatim, if set and non-empty.
 /// 2. `./.dev-bin/ferroflow-helper-linux` (dev convenience, gitignored).
-/// 3. `<resource_dir>/ferroflow-helper-linux` (packaged case).
+/// 3. `<resource_dir>/helper/ferroflow-helper-linux` (packaged case --
+///    staged there by `npm run build:helper`/`scripts/build-helper.mjs`
+///    into `src-tauri/resources/helper/`, which `bundle.resources` maps to
+///    `helper/` inside the bundle).
 ///
 /// Returns an error naming every candidate tried if none exist as a file.
 fn locate_helper_binary(app: &tauri::AppHandle) -> AppResult<PathBuf> {
@@ -190,7 +193,7 @@ fn locate_helper_binary(app: &tauri::AppHandle) -> AppResult<PathBuf> {
     tried.push(dev_bin.display().to_string());
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let packaged = resource_dir.join(HELPER_BINARY_NAME);
+        let packaged = resource_dir.join("helper").join(HELPER_BINARY_NAME);
         if packaged.is_file() {
             return Ok(packaged);
         }

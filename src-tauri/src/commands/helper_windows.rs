@@ -228,9 +228,14 @@ pub async fn uninstall() -> AppResult<HelperStatus> {
 /// `core-manager`'s `locate_binary` convention (see
 /// `crates/core-manager/src/lib.rs::locate_binary`) one step at a time:
 /// env var override, then a `.dev-bin` convenience path, then (when an
-/// `AppHandle` is available) Tauri's bundled-resource directory. Returns
-/// the list of paths actually tried, in order, on failure so the caller
-/// can build a useful error message.
+/// `AppHandle` is available) Tauri's bundled-resource directory, under a
+/// `helper/` subfolder (staged there by `npm run build:helper`/
+/// `scripts/build-helper.mjs` into `src-tauri/resources/helper/`, which
+/// `bundle.resources` maps to `helper/` inside the bundle -- see that
+/// script's doc comment for why this can't just be a bare-named workspace
+/// binary Cargo builds for free). Returns the list of paths actually
+/// tried, in order, on failure so the caller can build a useful error
+/// message.
 fn locate_helper_binary(app: Option<&AppHandle>) -> Result<PathBuf, Vec<String>> {
     let mut tried = Vec::new();
 
@@ -252,7 +257,7 @@ fn locate_helper_binary(app: Option<&AppHandle>) -> Result<PathBuf, Vec<String>>
 
     if let Some(app) = app {
         if let Ok(resource_dir) = app.path().resource_dir() {
-            let candidate = resource_dir.join(HELPER_BINARY_NAME);
+            let candidate = resource_dir.join("helper").join(HELPER_BINARY_NAME);
             if candidate.is_file() {
                 return Ok(candidate);
             }
