@@ -39,7 +39,15 @@ pub fn build_tun_inbound(interface_name: &str) -> Value {
         "type": "tun",
         "tag": TUN_INBOUND_TAG,
         "interface_name": interface_name,
-        "inet4_address": TUN_INET4_ADDRESS,
+        // Not `inet4_address` -- that field (along with `inet6_address`) was
+        // deprecated in sing-box 1.10.0 and removed outright in 1.12.0 in
+        // favor of a single `address` list covering both v4/v6 CIDRs. The
+        // binary this app bundles (pinned in `scripts/fetch-singbox.mjs`) is
+        // past that cutoff, so the legacy field name makes `sing-box run`
+        // exit immediately with "legacy tun address fields are deprecated"
+        // -- confirmed by feeding this exact config to the real bundled
+        // binary via `sing-box check`.
+        "address": [TUN_INET4_ADDRESS],
         "mtu": TUN_MTU,
         "auto_route": true,
         "strict_route": true,
@@ -57,7 +65,7 @@ mod tests {
         assert_eq!(inbound["type"], "tun");
         assert_eq!(inbound["tag"], TUN_INBOUND_TAG);
         assert_eq!(inbound["interface_name"], "ferroflow-tun0");
-        assert_eq!(inbound["inet4_address"], TUN_INET4_ADDRESS);
+        assert_eq!(inbound["address"], json!([TUN_INET4_ADDRESS]));
         assert_eq!(inbound["mtu"], TUN_MTU);
         assert_eq!(inbound["auto_route"], true);
         assert_eq!(inbound["strict_route"], true);
@@ -70,7 +78,7 @@ mod tests {
         assert!(inbound["type"].is_string());
         assert!(inbound["tag"].is_string());
         assert!(inbound["interface_name"].is_string());
-        assert!(inbound["inet4_address"].is_string());
+        assert!(inbound["address"].is_array());
         assert!(inbound["mtu"].is_u64());
         assert!(inbound["auto_route"].is_boolean());
         assert!(inbound["strict_route"].is_boolean());
